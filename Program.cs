@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Reflection;
 using CilLogic.CodeModel;
+using CilLogic.CodeModel.Passes;
 using CilLogic.Utilities;
 
 using Mono.Cecil;
@@ -24,7 +25,13 @@ namespace CilLogic
 
             // Build execute method
             var execute = type.Methods.Where(m => m.Name == "Execute").FirstOrDefault();
-            new Interpreter(execute).Dump();
+            var inp = new Interpreter(execute);
+
+            new PassDeadCode().Pass(inp.Method);
+            new PassPeephole().Pass(inp.Method);
+            new PassDeadCode().Pass(inp.Method);
+
+            Console.WriteLine(inp.Method);
         }
     }
 }

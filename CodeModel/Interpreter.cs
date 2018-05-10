@@ -43,8 +43,6 @@ namespace CilLogic.CodeModel
 
                 Action<int, int> Convert = (s,w) => Push(Observe(new Opcode(Method.GetValue(), Op.Conv, Pop(), s, w)));
 
-                Console.WriteLine(ins);
-
                 switch (ins.OpCode.Code)
                 {
                     case Code.Nop: Observe(Opcode.Nop); break;
@@ -60,20 +58,20 @@ namespace CilLogic.CodeModel
                     case Code.Dup: stack.Push(stack.Peek()); break;
                     case Code.Pop: Pop(); break;
 
-                    case Code.Beq_S: case Code.Beq:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, Observe(new Opcode(Method.GetValue(), Op.Ceq, v1,v2)), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Bne_Un_S: case Code.Bne_Un: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, Observe(new Opcode(Method.GetValue(), Op.Ceq, v1,v2)), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Beq_S: case Code.Beq:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Ceq, v1,v2))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bne_Un_S: case Code.Bne_Un: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Ceq, v1,v2))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Bge: case Code.Bge_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1)), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Bge_Un: case Code.Bge_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, Observe(new Opcode(Method.GetValue(), Op.Cltu, v2,v1)), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bge: case Code.Bge_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bge_Un: case Code.Bge_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v2,v1))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Ble: case Code.Ble_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1)), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Ble_Un: case Code.Ble_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, Observe(new Opcode(Method.GetValue(), Op.Cltu, v2, v1)), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Ble: case Code.Ble_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Ble_Un: case Code.Ble_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Bgt: case Code.Bgt_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1)), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Bgt_Un: case Code.Bgt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, Observe(new Opcode(Method.GetValue(), Op.Cltu, v2, v1)), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bgt: case Code.Bgt_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bgt_Un: case Code.Bgt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Blt: case Code.Blt_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, Observe(new Opcode(Method.GetValue(), Op.Clt, v1, v2)), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Blt_Un: case Code.Blt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, Observe(new Opcode(Method.GetValue(), Op.Cltu, v1, v2)), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Blt: case Code.Blt_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Blt_Un: case Code.Blt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
 
                     case Code.Ceq:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Ceq, a, b))); break; }
                     case Code.Cgt:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Clt, b, a))); break; }
@@ -230,6 +228,7 @@ namespace CilLogic.CodeModel
             Method = new Method();
 
             Execute(method.HasThis, method.Body.Instructions);
+            Method.Fragment();
         }
     }
 }
