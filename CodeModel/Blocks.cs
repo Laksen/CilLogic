@@ -19,6 +19,7 @@ namespace CilLogic.CodeModel
     {
         Nop,
 
+        Mov,
         Add, Sub,
         And, Or, Xor,
         Lsl, Lsr, Asr,
@@ -32,6 +33,7 @@ namespace CilLogic.CodeModel
         BrFalse, BrTrue, Br, BrCond,
         Call, Return, Switch,
         Conv,
+        Phi,
     }
 
     public class Opcode
@@ -139,6 +141,13 @@ namespace CilLogic.CodeModel
             return instruction;
         }
 
+        public Opcode Prepend(Opcode instruction)
+        {
+            Instructions.Insert(0, instruction);
+            instruction.Block = this;
+            return instruction;
+        }
+
         public void InsertAfter(Opcode instruction, Opcode after)
         {
             var idx = Instructions.IndexOf(after);
@@ -202,6 +211,13 @@ namespace CilLogic.CodeModel
                 return Instructions[idx + 1];
         }
 
+        internal void Replace(Opcode oldOpcode, Opcode newOpcode)
+        {
+            InsertAfter(newOpcode, oldOpcode);
+            Instructions.Remove(oldOpcode);
+            oldOpcode.Block = null;
+        }
+
         public BasicBlock(Method method)
         {
             Id = counter++;
@@ -214,6 +230,9 @@ namespace CilLogic.CodeModel
     {
         public List<BasicBlock> Blocks { get; }
         public BasicBlock Entry { get; }
+        public int Locals { get; }
+
+        public bool IsSSA { get; internal set; }
 
         private static int ValueCounter = 1;
 
@@ -251,22 +270,28 @@ namespace CilLogic.CodeModel
             }
         }
 
-        public IEnumerable<Opcode> ReplaceValue(int value, ConstOperand constOperand)
+        public List<Opcode> ReplaceValue(int value, Operand newOperand)
         {
-            foreach (var instr in Blocks.SelectMany(b => b.Instructions).ToList())
+            var res = new HashSet<Opcode>();
+
+            foreach (var instr in Blocks.SelectMany(b => b.Instructions))
             {
-                bool ok = false;
-
                 for (int i = 0; i < instr.Operands.Count; i++)
-                    if ((instr.Operands[i] is ValueOperand vo) && vo.Value == value)
+                {
+                    if ((instr[i] is ValueOperand vo) && vo.Value == value)
                     {
-                        instr.Operands[i] = constOperand;
-                        ok = true;
+                        instr.Operands[i] = newOperand;
+                        res.Add(instr);
                     }
-
-                if (ok)
-                    yield return instr;
+                    else if ((instr[i] is PhiOperand po) && (po.Value is ValueOperand vo3) && (vo3.Value == value))
+                    {
+                        instr.Operands[i] = new PhiOperand(po.Block, newOperand);
+                        res.Add(instr);
+                    }
+                }
             }
+
+            return res.ToList();
         }
 
         internal void ReplaceBlockOperand(BasicBlock target, BlockOperand newTarget)
@@ -276,13 +301,16 @@ namespace CilLogic.CodeModel
                 for (int i = 0; i < instr.Operands.Count; i++)
                     if ((instr.Operands[i] is BlockOperand bo) && bo.Block == target)
                         instr.Operands[i] = newTarget;
+                    else if ((instr.Operands[i] is PhiOperand po) && po.Block == target)
+                        instr.Operands[i] = new PhiOperand(newTarget.Block, po.Value);
             }
         }
 
-        public Method()
+        public Method(int locals)
         {
             Blocks = new List<BasicBlock>();
             Entry = GetBlock();
+            Locals = locals;
         }
     }
 }

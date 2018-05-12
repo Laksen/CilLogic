@@ -34,6 +34,25 @@ namespace CilLogic.CodeModel
         public ValueOperand(Opcode instruction) : this(instruction.Result) { }
     }
 
+    public class UndefOperand : Operand
+    {
+        public override string ToString() { return "{Undef}"; }
+    }
+
+    internal class PhiOperand : Operand
+    {
+        public BasicBlock Block { get; }
+        public Operand Value { get; }
+
+        public override string ToString() { return $"BB{Block.Id}@{Value}"; }
+
+        public PhiOperand(BasicBlock block, Operand value)
+        {
+            Block = block;
+            Value = value;
+        }
+    }
+
     public class ConstOperand : Operand
     {
         public UInt64 Value { get; }

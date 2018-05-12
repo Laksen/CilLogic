@@ -20,7 +20,8 @@ namespace CilLogic.CodeModel.Passes
 
                 var instrProvides = instrs.ToDictionary(i => i, i => i.Result);
                 var instrProviders = instrProvides.Where(kvp => kvp.Value != 0).ToDictionary(i => i.Value, i => i.Key);
-                var usages = instrs.ToDictionary(i => i, i => i.Operands.OfType<ValueOperand>().Select(v => v.Value).ToList());
+                var usages = instrs.ToDictionary(i => i, i => i.Operands.OfType<ValueOperand>().Select(v => v.Value).Concat(
+                    i.Operands.OfType<PhiOperand>().Select(v => v.Value).OfType<ValueOperand>().Select(v => v.Value)).Distinct().ToList());
                 var instrUsers = instrs.ToDictionary(i => i, i => usages.Where(u => u.Value.Contains(i.Result)).Select(u => u.Key).ToList());
 
                 var useCount = instrs.ToDictionary(i => i, i => (i.HasSideEffects() ? 1 : 0) + instrUsers[i].Count());
@@ -62,8 +63,13 @@ namespace CilLogic.CodeModel.Passes
         {
             var jumpBlocks = method.Blocks.Where(b => (b.Instructions.Count == 1) && (b.Instructions[0].Op == Op.Br)).ToList();
 
-            foreach(var blk in jumpBlocks)
+            var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.Last().Operands.OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
+            foreach (var blk in jumpBlocks)
             {
+                var prevBlocks = nextBlocks.Where(kvp => kvp.Value.Contains(blk)).Select(x => x.Key).ToList();
+
+                if (prevBlocks.Count > 1) continue; // TODO: Fix up phi nodes
+
                 method.ReplaceBlockOperand(blk, blk.Instructions[0][0] as BlockOperand);
             }
         }

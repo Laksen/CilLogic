@@ -12,12 +12,15 @@ namespace CilLogic.CodeModel.Passes
 
             while (queue.TryDequeue(out Opcode ins))
             {
+                if (ins.Block == null)
+                    continue;
+
                 switch (ins.Op)
                 {
                     case Op.Conv:
                         {
                             if (ins.Operands[0] is ConstOperand co)
-                                foreach(var i2 in method.ReplaceValue(ins.Result, new ConstOperand(co.Value, (ins.Operands[1] as ConstOperand).Value != 0, (int)(ins.Operands[1] as ConstOperand).Value)))
+                                foreach (var i2 in method.ReplaceValue(ins.Result, new ConstOperand(co.Value, (ins.Operands[1] as ConstOperand).Value != 0, (int)(ins.Operands[1] as ConstOperand).Value)))
                                     queue.Enqueue(i2);
                             break;
                         }
@@ -31,6 +34,23 @@ namespace CilLogic.CodeModel.Passes
                         {
                             if (ins.Next.Op == Op.Br)
                                 ins.Block.InsertBefore(new Opcode(0, Op.BrCond, ins[0], ins.Next[0], ins[1]), ins);
+                            break;
+                        }
+                    case Op.Mov:
+                        {
+                            foreach (var i2 in method.ReplaceValue(ins.Result, ins[0]))
+                                queue.Enqueue(i2);
+
+                            break;
+                        }
+                    case Op.Phi:
+                        {
+                            var phis = ins.Operands.OfType<PhiOperand>().ToList();
+                            if (phis.All(p => p.Value is ValueOperand) && phis.Select(po => (po.Value as ValueOperand).Value).Distinct().Count() == 1)
+                            {
+                                ins.Block.Replace(ins, new Opcode(ins.Result, Op.Mov, new ValueOperand((ins.Operands.OfType<PhiOperand>().First().Value as ValueOperand).Value)));
+                            }
+
                             break;
                         }
                 }

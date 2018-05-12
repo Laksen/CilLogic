@@ -31,6 +31,14 @@ namespace CilLogic
             new PassPeephole().Pass(inp.Method);
             new PassDeadCode().Pass(inp.Method);
 
+            new SsaPass().Pass(inp.Method);
+            
+            for(int i=0; i<20; i++)
+            {
+                new PassPeephole().Pass(inp.Method);
+                new PassDeadCode().Pass(inp.Method);
+            }
+
             Console.WriteLine(inp.Method);
         }
     }

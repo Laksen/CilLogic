@@ -225,7 +225,7 @@ namespace CilLogic.CodeModel
 
         public Interpreter(MethodDefinition method)
         {
-            Method = new Method();
+            Method = new Method(method.Body.Variables.Count);
 
             Execute(method.HasThis, method.Body.Instructions);
             Method.Fragment();
