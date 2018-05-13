@@ -19,6 +19,7 @@ namespace CilLogic.CodeModel.Passes
                 var instrs = method.Blocks.SelectMany(o => o.Instructions).ToHashSet();
 
                 var instrProvides = instrs.ToDictionary(i => i, i => i.Result);
+
                 var instrProviders = instrProvides.Where(kvp => kvp.Value != 0).ToDictionary(i => i.Value, i => i.Key);
                 var usages = instrs.ToDictionary(i => i, i => i.Operands.OfType<ValueOperand>().Select(v => v.Value).Concat(
                     i.Operands.OfType<PhiOperand>().Select(v => v.Value).OfType<ValueOperand>().Select(v => v.Value)).Distinct().ToList());
@@ -74,12 +75,45 @@ namespace CilLogic.CodeModel.Passes
             }
         }
 
+        private void SpliceBlocks(Method method)
+        {
+            bool wasOK;
+            do
+            {
+                wasOK = false;
+                var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.Last().Operands.OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
+
+                foreach (var block in method.Blocks)
+                {
+                    var prevBlocks = nextBlocks.Where(kvp => kvp.Value.Contains(block)).Select(x => x.Key).ToList();
+
+                    if ((prevBlocks.Count == 1) && (nextBlocks[prevBlocks[0]].Count == 1))
+                    {
+                        var pb = prevBlocks[0];
+                        method.ReplaceBlockOperand(pb, new BlockOperand(block));
+
+                        foreach(var instr in pb.Instructions.Reverse<Opcode>().Skip(1))
+                            block.Prepend(instr);
+
+                        method.Blocks.Remove(pb);
+                        if (method.Entry == pb)
+                            method.Entry = block;
+
+                        wasOK = false;
+                        break;
+                    }
+                }
+            }
+            while (wasOK);
+        }
+
         public override void Pass(Method method)
         {
             RemoveUnused(method);
             RemoveStaleBranches(method);
-            RemoveDeadJumps(method);
+            //RemoveDeadJumps(method);
             RemoveDeadBlocks(method);
+            SpliceBlocks(method);
         }
     }
 }

@@ -1,9 +1,11 @@
 using System;
+using CilLogic.CodeModel;
 
 namespace CilLogic
 {
     public abstract class Actor
     {
+        [Operation(Op.Sleep)]
         public void Sleep()
         {
         }
@@ -18,27 +20,41 @@ namespace CilLogic
 
     public interface IInput<T> : IPipe<T> where T : struct, IConvertible
     {
+        [Operation(Op.ReadValid)]
         bool DataValid();
-        bool TryRead(out T data);
+        [Operation(Op.ReadPort)]
+        T ReadValue();
     }
     public interface IOutput<T> : IPipe<T> where T : struct, IConvertible
     {
+        [Operation(Op.ReadReady)]
         bool CanWrite();
-        bool TryWrite(T data);
+        [Operation(Op.WritePort)]
+        void WriteValue(T data);
+    }
+
+    public class OperationAttribute : Attribute
+    {
+        public readonly Op Op;
+
+        public OperationAttribute(Op op)
+        {
+            Op = op;
+        }
     }
 
     public static class PipeHelpers
     {
         public static void Write<T>(this IOutput<T> output, T value, Actor actor) where T : struct, IConvertible
         {
-            while (!output.TryWrite(value)) actor.Sleep();
+            while (!output.CanWrite()) actor.Sleep();
+            output.WriteValue(value);
         }
         
         public static T Read<T>(this IInput<T> output, Actor actor) where T : struct, IConvertible
         {
-            T result;
-            while (!output.TryRead(out result)) actor.Sleep();
-            return result;
+            while (!output.DataValid()) actor.Sleep();
+            return output.ReadValue();
         }
     }
 }

@@ -34,6 +34,12 @@ namespace CilLogic.CodeModel
         Call, Return, Switch,
         Conv,
         Phi,
+        LdLocA,
+        ReadReady,
+        WritePort,
+        ReadPort,
+        ReadValid,
+        Sleep,
     }
 
     public class Opcode
@@ -89,7 +95,11 @@ namespace CilLogic.CodeModel
 
                 case Op.Call:
                 case Op.Return:
+
+                case Op.WritePort:
+                case Op.Sleep:
                     return true;
+
                 default:
                     return false;
             }
@@ -132,7 +142,7 @@ namespace CilLogic.CodeModel
 
         public int Id { get; }
         public List<Opcode> Instructions { get; }
-        public Method Method { get; }
+        public Method Method { get; set; }
 
         public Opcode Append(Opcode instruction)
         {
@@ -182,7 +192,7 @@ namespace CilLogic.CodeModel
                     newBlock.Append(instr);
                 }
 
-                Append(new Opcode(0, Op.Br, instruction));
+                Append(new Opcode(0, Op.Br, new BlockOperand(newBlock)));
 
                 return newBlock;
             }
@@ -229,12 +239,12 @@ namespace CilLogic.CodeModel
     public class Method
     {
         public List<BasicBlock> Blocks { get; }
-        public BasicBlock Entry { get; }
+        public BasicBlock Entry { get; set; }
         public int Locals { get; }
 
         public bool IsSSA { get; internal set; }
 
-        private static int ValueCounter = 1;
+        private static int ValueCounter = 2;
 
         public int GetValue()
         {

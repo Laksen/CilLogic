@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using CilLogic.CodeModel;
@@ -27,19 +28,9 @@ namespace CilLogic
             var execute = type.Methods.Where(m => m.Name == "Execute").FirstOrDefault();
             var inp = new Interpreter(execute);
 
-            new PassDeadCode().Pass(inp.Method);
-            new PassPeephole().Pass(inp.Method);
-            new PassDeadCode().Pass(inp.Method);
+            CodePass.Process(inp.Method);
 
-            new SsaPass().Pass(inp.Method);
-            
-            for(int i=0; i<20; i++)
-            {
-                new PassPeephole().Pass(inp.Method);
-                new PassDeadCode().Pass(inp.Method);
-            }
-
-            Console.WriteLine(inp.Method);
+            File.WriteAllText(@"C:\Users\jepjoh2\Desktop\New Text Document.txt", inp.Method.ToString());
         }
     }
 }
