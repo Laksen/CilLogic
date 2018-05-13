@@ -89,8 +89,8 @@ namespace CilLogic.Tests
 
         static UInt64 SignExtend(UInt64 value, int msb)
         {
-            return (UInt64)(((Int64)(value << (64 - msb)))
-             >> (64 - msb));
+            return (UInt64)(((Int64)(value << (64 - msb - 1)))
+             >> (64 - msb - 1));
         }
 
         static UInt64 AluOp(UInt64 a, UInt64 b, UInt64 f3, UInt64 f7, UInt64 shiftMask)
@@ -125,32 +125,32 @@ namespace CilLogic.Tests
         private const UInt32 IllegalInstruction = 0;
         private const UInt32 R_SP = 14;
 
-        private UInt32 OpR(Opcode op, uint Rd, uint Rs1, uint Rs2, uint f3, uint f7)
+        private static UInt32 OpR(Opcode op, uint Rd, uint Rs1, uint Rs2, uint f3, uint f7)
         {
             return 0x3 | ((uint)op << 2) | (Rd << 7) | (f3 << 12) | (Rs1 << 15) | (Rs2 << 20) | (f7 << 25);
         }
 
-        private UInt32 OpI(Opcode op, uint Rd, uint Rs1, uint Imm, uint f3)
+        private static UInt32 OpI(Opcode op, uint Rd, uint Rs1, uint Imm, uint f3)
         {
             return 0x3 | ((uint)op << 2) | (Rd << 7) | (f3 << 12) | (Rs1 << 15) | (Imm << 20);
         }
 
-        private UInt32 OpS(Opcode op, uint Rs1, uint Rs2, uint Imm, uint f3)
+        private static UInt32 OpS(Opcode op, uint Rs1, uint Rs2, uint Imm, uint f3)
         {
             return 0x3 | ((uint)op << 2) | ((Imm & 0x1F) << 7) | (f3 << 12) | (Rs1 << 15) | (Rs2 << 20) | ((Imm & 0xF30) << 15);
         }
 
-        private UInt32 OpB(Opcode op, uint Rs1, uint Rs2, uint Imm, uint f3)
+        private static UInt32 OpB(Opcode op, uint Rs1, uint Rs2, uint Imm, uint f3)
         {
             return 0x3 | ((uint)op << 2) | ((Imm & 0x1F) << 7) | (f3 << 12) | (Rs1 << 15) | (Rs2 << 20) | ((Imm & 0xF30) << 15);
         }
 
-        private UInt32 OpU(Opcode op, uint Rd, uint Imm)
+        private static UInt32 OpU(Opcode op, uint Rd, uint Imm)
         {
             return 0x3 | ((uint)op << 2) | (Rd << 7) | (Imm & 0xFFFFF000);
         }
 
-        private UInt32 OpJ(Opcode op, uint Rd, uint Imm)
+        private static UInt32 OpJ(Opcode op, uint Rd, uint Imm)
         {
             return 0x3 | ((uint)op << 2) | (Rd << 7) |
                 (((Imm >> 20) & 0x1) << 31) |

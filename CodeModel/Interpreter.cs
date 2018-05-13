@@ -91,20 +91,20 @@ namespace CilLogic.CodeModel
                     case Code.Blt: case Code.Blt_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
                     case Code.Blt_Un: case Code.Blt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Ceq:    { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Ceq, a, b))); break; }
-                    case Code.Cgt:    { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Clt, b, a))); break; }
-                    case Code.Cgt_Un: { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Cltu, b, a))); break; }
-                    case Code.Clt:    { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Clt, b, a))); break; }
-                    case Code.Clt_Un: { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Cltu, b, a))); break; }
+                    case Code.Ceq:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Ceq, a, b))); break; }
+                    case Code.Cgt:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Clt, b, a))); break; }
+                    case Code.Cgt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Cltu, b, a))); break; }
+                    case Code.Clt:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Clt, b, a))); break; }
+                    case Code.Clt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Cltu, b, a))); break; }
 
-                    case Code.Add:    { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Add, a, b))); break; }
-                    case Code.Sub:    { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Sub, a, b))); break; }
-                    case Code.And:    { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.And, a, b))); break; }
-                    case Code.Or:     { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Or, a, b))); break; }
-                    case Code.Xor:    { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Xor, a, b))); break; }
-                    case Code.Shl:    { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Lsl, a, b))); break; }
-                    case Code.Shr:    { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Asr, a, b))); break; }
-                    case Code.Shr_Un: { var a = Pop(); var b = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Lsr, a, b))); break; }
+                    case Code.Add:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Add, a, b))); break; }
+                    case Code.Sub:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Sub, a, b))); break; }
+                    case Code.And:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.And, a, b))); break; }
+                    case Code.Or:     { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Or, a, b))); break; }
+                    case Code.Xor:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Xor, a, b))); break; }
+                    case Code.Shl:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Lsl, a, b))); break; }
+                    case Code.Shr:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Asr, a, b))); break; }
+                    case Code.Shr_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Lsr, a, b))); break; }
 
                     case Code.Ldarg_0: stack.Push(arguments[0]); break;
                     case Code.Ldarg_1: stack.Push(arguments[1]); break;
@@ -201,7 +201,7 @@ namespace CilLogic.CodeModel
                             var v = 0;
                             if (m.MethodReturnType.ReturnType != m.Module.TypeSystem.Void) v = Method.GetValue();
                             
-                            var op = Observe(new Opcode(v, Op.Call, new Operand[]{ new MethodOperand(m) }.Concat(Enumerable.Range(0, GetArgCount(m)).Select(i => Pop()).ToList()).ToArray()));
+                            var op = Observe(new Opcode(v, Op.Call, new Operand[]{ new MethodOperand(m) }.Concat(Enumerable.Range(0, GetArgCount(m)).Select(i => Pop()).ToArray().Reverse()).ToArray()));
 
                             if (m.MethodReturnType.ReturnType != m.Module.TypeSystem.Void) Push(op);
 
