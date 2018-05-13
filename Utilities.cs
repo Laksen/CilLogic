@@ -8,6 +8,37 @@ namespace CilLogic.Utilities
 {
     public static class CodeHelpers
     {
+        private static bool IsPortType(this TypeDefinition td)
+        {
+            return td.Name == "IPort";
+        }
+
+        private static Dictionary<TypeReference, bool> PortDict = new Dictionary<TypeReference, bool>();
+
+        private static bool IsPort(this TypeReference oper)
+        {
+            if (!PortDict.ContainsKey(oper))
+            {
+                var res = false;
+
+                var td = oper.Resolve();
+                if (td.FullName == typeof(IPipe<>).FullName)
+                    res = true;
+
+                if (td.Interfaces.Any(i => IsPort(i.InterfaceType)))
+                    res = true;
+
+                PortDict[oper] = res;
+            }
+
+            return PortDict[oper];
+        }
+
+        public static bool IsStateInvariant(this BasicBlock block)
+        {
+            return block.Instructions.All(i => i.Operands.OfType<FieldOperand>().All(o => o.Field.FieldType.IsPort()));
+        }
+
         private class Vertex
         {
             public BasicBlock Block;

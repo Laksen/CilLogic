@@ -227,7 +227,7 @@ namespace CilLogic.CodeModel
                     case Code.Stloc_S:
                     case Code.Stloc: Observe(new Opcode(0, Op.StLoc, (ins.Operand as VariableReference).Index, Pop())); break;
 
-                    case Code.Ldfld: Push(Observe(new Opcode(Method.GetValue(), Op.LdFld, Pop(), new FieldOperand((FieldReference)ins.Operand)))); break;
+                    case Code.Ldfld: stack.Push(new FieldOperand((FieldReference)ins.Operand)); break;
                     case Code.Stfld:
                         {
                             var value = Pop();
