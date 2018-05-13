@@ -11,6 +11,11 @@ namespace CilLogic.Utilities
         {
             return method.Blocks.SelectMany(x => x.Instructions).ToList();
         }
+
+        public static List<BasicBlock> NextBlocks(this BasicBlock block)
+        {
+            return block.Instructions.Last().Operands.OfType<BlockOperand>().Select(x => x.Block).ToList();
+        }
     }
 
     public static class AssemblyHelpers

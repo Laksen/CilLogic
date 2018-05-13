@@ -20,18 +20,28 @@ namespace CilLogic.CodeModel.Passes
                     Operand o = null;
                     ConstOperand a = (ins[0] as ConstOperand), b = (ins[1] as ConstOperand);
 
-                    switch(ins.Op)
+                    switch (ins.Op)
                     {
                         case Op.And: o = new ConstOperand(a.Value & b.Value); break;
                         case Op.Or: o = new ConstOperand(a.Value | b.Value); break;
                         case Op.Xor: o = new ConstOperand(a.Value ^ b.Value); break;
-                        
+
                         case Op.Add: o = new ConstOperand(a.Value + b.Value); break;
                         case Op.Sub: o = new ConstOperand(a.Value - b.Value); break;
-                        
+
                         case Op.Lsl: o = new ConstOperand(a.Value << (int)b.Value); break;
                         case Op.Asr: o = new ConstOperand((UInt64)((Int64)(a.Value) >> (int)b.Value)); break;
                         case Op.Lsr: o = new ConstOperand(a.Value >> (int)b.Value); break;
+
+                        case Op.Ceq: o = new ConstOperand(a.Value == b.Value ? 1 : 0); break;
+                        case Op.Clt: o = new ConstOperand(a.SignedValue < b.SignedValue ? 1 : 0); break;
+                        case Op.Cltu: o = new ConstOperand(a.Value < b.Value ? 1 : 0); break;
+
+                        case Op.StLoc: break;
+
+                        default:
+                            Console.WriteLine(ins);
+                            break;
                     }
 
                     if (o != null)
@@ -53,13 +63,21 @@ namespace CilLogic.CodeModel.Passes
                     case Op.BrTrue:
                         {
                             if (ins.Next.Op == Op.Br)
-                                ins.Block.InsertBefore(new Opcode(0, Op.BrCond, ins[0], ins[1], ins.Next[0]), ins);
+                            {
+                                var n = ins.Next;
+                                ins.Block.Instructions.Remove(n);
+                                ins.Block.Replace(ins, new Opcode(0, Op.BrCond, ins[0], ins[1], n[0]));
+                            }
                             break;
                         }
                     case Op.BrFalse:
                         {
                             if (ins.Next.Op == Op.Br)
-                                ins.Block.InsertBefore(new Opcode(0, Op.BrCond, ins[0], ins.Next[0], ins[1]), ins);
+                            {
+                                var n = ins.Next;
+                                ins.Block.Instructions.Remove(n);
+                                ins.Block.Replace(ins, new Opcode(0, Op.BrCond, ins[0], n[0], ins[1]));
+                            }
                             break;
                         }
                     case Op.Mov:
@@ -97,10 +115,15 @@ namespace CilLogic.CodeModel.Passes
                         }
                     case Op.BrCond:
                         {
-                            var targets = ins.Operands.OfType<BlockOperand>().Select(x => x.Block).ToHashSet();
+                            if (ins[0] is ConstOperand co)
+                                ins.Block.Replace(ins, new Opcode(0, Op.Br, co.Value != 0 ? ins[1] : ins[2]));
+                            else
+                            {
+                                var targets = ins.Operands.OfType<BlockOperand>().Select(x => x.Block).ToHashSet();
 
-                            if (targets.Count == 1)
-                                ins.Block.Replace(ins, new Opcode(0, Op.Br, new BlockOperand(targets.First())));
+                                if (targets.Count == 1)
+                                    ins.Block.Replace(ins, new Opcode(0, Op.Br, new BlockOperand(targets.First())));
+                            }
 
                             break;
                         }

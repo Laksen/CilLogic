@@ -29,7 +29,7 @@ namespace CilLogic.CodeModel
         public int Value { get; }
 
         public override string ToString() { return $"%{Value}"; }
-        
+
         public override bool Equals(object obj)
         {
             if (obj is ValueOperand po)
@@ -46,7 +46,7 @@ namespace CilLogic.CodeModel
 
     public class UndefOperand : Operand
     {
-        
+
         public override bool Equals(object obj)
         {
             return (obj is UndefOperand);
@@ -86,7 +86,9 @@ namespace CilLogic.CodeModel
         public UInt64 Value { get; }
         public bool Signed { get; }
         public int Width { get; }
-        
+
+        public Int64 SignedValue { get { return (Int64)Value; } }
+
         public override bool Equals(object obj)
         {
             if (obj is ConstOperand po)
