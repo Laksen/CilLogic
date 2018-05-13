@@ -78,7 +78,7 @@ namespace CilLogic.Tests
 
         private UInt64 pc = 0;
         private UInt64 mstatus = 0;
-        private UInt64 misa = 0;
+        private const UInt64 misa = 1;
 
         private int XLEN { get { return misa == 1 ? 64 : 32; } }
 
@@ -297,12 +297,17 @@ namespace CilLogic.Tests
             var vrs1 = regs[rs1];
             var vrs2 = regs[rs2];
 
-            var op2 = (opcode == Opcode.add) || (opcode == Opcode.addw) ? vrs2 : imm;
-            var aluf7 = (opcode == Opcode.add) || (opcode == Opcode.addw) ? f7 : 0;
-            var aluf3 = (opcode == Opcode.add) || (opcode == Opcode.addw) || (opcode == Opcode.addi) || (opcode == Opcode.addiw) ? f3 : 0;
+            var isR = (opcode == Opcode.add) || (opcode == Opcode.addw);
+            var isI = (opcode == Opcode.addi) || (opcode == Opcode.addiw);
+
+            var isW = (opcode == Opcode.addw) || (opcode == Opcode.addiw);
+
+            var op2   = isR ? vrs2 : imm;
+            var aluf7 = isR ? f7 : 0;
+            var aluf3 = isR || isI ? f3 : 0;
 
             // Execute
-            UInt64 result = AluOp(vrs1, op2, aluf3, aluf7, (UInt64)((opcode == Opcode.addiw) || (opcode == Opcode.addw) ? 0x1F : 0x3F));
+            UInt64 result = AluOp(vrs1, op2, aluf3, aluf7, (UInt64)(isW ? 0x1F : 0x3F));
 
             switch (opcode)
             {

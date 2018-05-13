@@ -24,6 +24,7 @@ namespace CilLogic.CodeModel
         And, Or, Xor,
         Lsl, Lsr, Asr,
         Ceq, Clt, Cltu,
+        Slice,
 
         LdFld, StFld,
         LdArray, StArray,
@@ -35,11 +36,9 @@ namespace CilLogic.CodeModel
         Conv,
         Phi,
         LdLocA,
-        ReadReady,
-        WritePort,
-        ReadPort,
-        ReadValid,
-        Sleep,
+        ReadReady, WritePort,
+        ReadPort, ReadValid,
+        Stall,
     }
 
     public class Opcode
@@ -97,7 +96,7 @@ namespace CilLogic.CodeModel
                 case Op.Return:
 
                 case Op.WritePort:
-                case Op.Sleep:
+                case Op.Stall:
                     return true;
 
                 default:

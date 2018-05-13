@@ -5,8 +5,8 @@ namespace CilLogic
 {
     public abstract class Actor
     {
-        [Operation(Op.Sleep)]
-        public void Sleep()
+        [Operation(Op.Stall)]
+        public void Stall(bool condition = true)
         {
         }
 
@@ -47,13 +47,13 @@ namespace CilLogic
     {
         public static void Write<T>(this IOutput<T> output, T value, Actor actor) where T : struct, IConvertible
         {
-            while (!output.CanWrite()) actor.Sleep();
+            while (!output.CanWrite()) actor.Stall();
             output.WriteValue(value);
         }
         
         public static T Read<T>(this IInput<T> output, Actor actor) where T : struct, IConvertible
         {
-            while (!output.DataValid()) actor.Sleep();
+            while (!output.DataValid()) actor.Stall();
             return output.ReadValue();
         }
     }

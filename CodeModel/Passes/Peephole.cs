@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CilLogic.Utilities;
 
 namespace CilLogic.CodeModel.Passes
 {
@@ -8,7 +9,88 @@ namespace CilLogic.CodeModel.Passes
     {
         public override void Pass(Method method)
         {
-            var queue = new Queue<Opcode>(method.Blocks.SelectMany(b => b.Instructions));
+            SingleOpPass(method);
+            MultiOpPass(method);
+        }
+
+        private void MultiOpPass(Method method)
+        {
+            bool wasFixed;
+
+            do
+            {
+                wasFixed = false;
+
+                var ops = method.AllInstructions();
+
+                /*var usage = ops.ToDictionary(o => o, o => o.Operands.OfType<ValueOperand>().Select(x => x.Value).ToHashSet());
+                var users = ops.ToDictionary(o => o, o => ops.Where(d => usage[d].Contains(o.Result)).ToHashSet());*/
+
+                foreach (var op in ops)
+                {
+                    switch (op.Op)
+                    {
+                        case Op.Lsr:
+                            {
+                                if (op[1] is ConstOperand co)
+                                {
+                                    var newOp = new Opcode(op.Result, Op.Slice, op[0], 63, co.Value, 0);
+                                    op.Block.Replace(op, newOp);
+                                    wasFixed = true;
+                                }
+                                break;
+                            }
+                        case Op.And:
+                            {
+                                if ((op[0] is ValueOperand vo) && (op[1] is ConstOperand co2) && ((co2.Value + 1).IsPot(out int bits)))
+                                {
+                                    var gen = ops.Where(x => x.Result == vo.Value).FirstOrDefault();
+                                    if (gen == null) break;
+
+                                    if ((gen.Op == Op.Slice) && (gen[1] is ConstOperand msb) && (gen[2] is ConstOperand lsb) && (gen[3] is ConstOperand shift) && (shift.Value == 0))
+                                    {
+                                        op.Block.Replace(op, new Opcode(op.Result, Op.Slice, gen[0], Math.Min(msb.Value, (UInt64)(lsb.Value + (UInt64)bits - 1)), lsb.Value, 0));
+                                        wasFixed = true;
+                                    }
+                                    else
+                                    {
+                                        op.Block.Replace(op, new Opcode(op.Result, Op.Slice, op[0], bits - 1, 0, 0));
+                                        wasFixed = true;
+                                    }
+                                }
+                                break;
+                            }
+                        case Op.Lsl:
+                            {
+                                if ((op[0] is ValueOperand vo) && (op[1] is ConstOperand co2))
+                                {
+                                    var gen = ops.Where(x => x.Result == vo.Value).FirstOrDefault();
+                                    if (gen == null) break;
+
+                                    if ((gen.Op == Op.Slice) && (gen[1] is ConstOperand msb) && (gen[2] is ConstOperand lsb) && (gen[3] is ConstOperand shift))
+                                    {
+                                        op.Block.Replace(op, new Opcode(op.Result, Op.Slice, gen[0], msb.Value, lsb.Value, co2.Value));
+                                        wasFixed = true;
+                                    }
+                                    else
+                                    {
+                                        op.Block.Replace(op, new Opcode(op.Result, Op.Slice, op[0], 63 - co2.Value, 0, co2.Value));
+                                        wasFixed = true;
+                                    }
+                                }
+                                break;
+                            }
+                    }
+
+                    if (wasFixed) break;
+                }
+            }
+            while (wasFixed);
+        }
+
+        private void SingleOpPass(Method method)
+        {
+            var queue = new Queue<Opcode>(method.AllInstructions());
 
             while (queue.TryDequeue(out Opcode ins))
             {
@@ -50,9 +132,54 @@ namespace CilLogic.CodeModel.Passes
                         continue;
                     }
                 }
+                else if (ins.Operands.All(op => op is ConstOperand))
+                {
+                    Operand o = null;
+
+                    switch (ins.Op)
+                    {
+                        case Op.Slice:
+                            {
+                                var v = ins[0] as ConstOperand;
+                                var m = ins[1] as ConstOperand;
+                                var l = ins[2] as ConstOperand;
+                                var s = ins[3] as ConstOperand;
+
+                                o = new ConstOperand(((v.Value >> (int)l.Value) & (((UInt64)1 << (int)(m.Value - l.Value)) - 1)) << (int)s.Value);
+                                break;
+                            }
+
+                        case Op.Conv:
+
+                        case Op.LdLoc:
+                        case Op.Return:
+                        case Op.Mov:
+                        case Op.StLoc: break;
+
+                        default:
+                            Console.WriteLine(ins);
+                            break;
+                    }
+
+                    if (o != null)
+                    {
+                        ins.Block.Replace(ins, new Opcode(ins.Result, Op.Mov, o));
+                        continue;
+                    }
+                }
 
                 switch (ins.Op)
                 {
+                    case Op.Or:
+                        {
+                            if ((ins[1] is ConstOperand co) && (co.Value == 0))
+                            {
+                                var newop = new Opcode(ins.Result, Op.Mov, ins[0]);
+                                ins.Block.Replace(ins, newop);
+                                queue.Enqueue(newop);
+                            }
+                            break;
+                        }
                     case Op.Conv:
                         {
                             if (ins.Operands[0] is ConstOperand co)

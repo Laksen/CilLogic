@@ -8,6 +8,23 @@ namespace CilLogic.Utilities
 {
     public static class CodeHelpers
     {
+        public static bool IsPot(this UInt64 value, out int bits)
+        {
+            bits = 0;
+            if (((value - 1) & value) == 0)
+            {
+                bits = 0;
+
+                for (int i = 0; i < 64; i++)
+                    if ((((UInt64)1) << i) == value)
+                        bits = i;
+                        
+                return true;
+            }
+            else
+                return false;
+        }
+
         private static bool IsPortType(this TypeDefinition td)
         {
             return td.Name == "IPort";
@@ -75,18 +92,18 @@ namespace CilLogic.Utilities
 
                 foreach (var w in v.Block.NextBlocks().Select(x => V[x]))
                 {
-                    if(w.Index == Undefined)
+                    if (w.Index == Undefined)
                     {
                         StrongConnect(w);
                         v.LowLink = Math.Min(v.LowLink, w.LowLink);
                     }
-                    else if(w.OnStack)
+                    else if (w.OnStack)
                     {
                         v.LowLink = Math.Min(v.LowLink, w.Index);
                     }
                 }
 
-                if(v.LowLink == v.Index)
+                if (v.LowLink == v.Index)
                 {
                     var r = new List<BasicBlock>();
 
