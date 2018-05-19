@@ -39,6 +39,7 @@ namespace CilLogic.CodeModel
         ReadReady, WritePort,
         ReadPort, ReadValid,
         Stall,
+        Mux,
     }
 
     public class Opcode

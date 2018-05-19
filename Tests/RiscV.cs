@@ -1,4 +1,5 @@
 using System;
+using CilLogic.Types;
 
 namespace CilLogic.Tests
 {
@@ -95,16 +96,18 @@ namespace CilLogic.Tests
 
         static UInt64 AluOp(UInt64 a, UInt64 b, UInt64 f3, UInt64 f7, UInt64 shiftMask)
         {
-            switch (f3)
+            switch (f3 & 7)
             {
                 case 0: return (f7 == 32) ? a - b : a + b;
                 case 1: return a << (int)(b & shiftMask);
                 case 2: return (UInt64)(((Int64)a) < ((Int64)b) ? 1 : 0);
                 case 3: return (UInt64)(a < b ? 1 : 0);
                 case 4: return a ^ b;
-                case 5: return (f7 == 32) ? ((UInt64)(((Int64)a) >> (int)(b & shiftMask))) : (a >> (int)b);
+                case 5: if (f7 == 32) return ((UInt64)(((Int64)a) >> (int)(b & shiftMask))); else return (a >> (int)b);
                 case 6: return a | b;
-                default: return a & b;
+                case 7: return a & b;
+
+                default: return 0;
             }
         }
 

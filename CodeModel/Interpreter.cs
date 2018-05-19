@@ -16,7 +16,171 @@ namespace CilLogic.CodeModel
             Console.WriteLine(Method.ToString());
         }
 
-        private void Execute(bool hasThis, bool hasResult, IEnumerable<Instruction> instructions, List<Operand> arguments)
+        private class InstructionInfo
+        {
+            public HashSet<Instruction> Priors = new HashSet<Instruction>();
+            public int StackSize = 0;
+            public bool Entered = false;
+
+            public void Enter(int stackSize, Instruction from)
+            {
+                if (from != null)
+                    Priors.Add(from);
+
+                if (Entered)
+                {
+                    if (StackSize != stackSize)
+                        throw new Exception("Invalid stack size");
+                }
+                else
+                {
+                    Entered = true;
+                    StackSize = stackSize;
+                }
+            }
+        }
+
+        private Dictionary<Instruction, InstructionInfo> Analyze(List<Instruction> instructions, bool hasResult)
+        {
+            var res = new Dictionary<Instruction, InstructionInfo>();
+            foreach (var r in instructions) res[r] = new InstructionInfo();
+
+            var toVisit = new Queue<int>();
+            var visited = new HashSet<int>();
+
+            toVisit.Enqueue(0);
+            res[instructions[0]].Enter(0, null);
+
+            while (toVisit.Count > 0)
+            {
+                var entry = toVisit.Dequeue();
+
+                if (visited.Contains(entry)) continue;
+                int stackSize = res[instructions[entry]].StackSize;
+
+                Instruction last = null;
+
+                while ((entry < instructions.Count) && (entry >= 0))
+                {
+                    var ins = instructions[entry];
+                    res[ins].Enter(stackSize, last);
+                    last = ins;
+
+                    visited.Add(entry);
+
+                    entry++;
+
+                    switch (ins.OpCode.StackBehaviourPop)
+                    {
+                        case StackBehaviour.Pop0: break;
+
+                        case StackBehaviour.Popref:
+                        case StackBehaviour.Popi:
+                        case StackBehaviour.Pop1: stackSize--; break;
+
+                        case StackBehaviour.Popref_pop1:
+                        case StackBehaviour.Popref_popi:
+                        case StackBehaviour.Popi_popi8:
+                        case StackBehaviour.Pop1_pop1: stackSize -= 2; break;
+
+                        case StackBehaviour.Popref_popi_popi:
+                        case StackBehaviour.Popref_popi_popi8:
+                        case StackBehaviour.Popref_popi_popref: stackSize -= 3; break;
+
+                        case StackBehaviour.PopAll: stackSize = 0; break;
+
+                        case StackBehaviour.Varpop:
+                            {
+                                if (ins.OpCode.Code == Code.Ret)
+                                {
+                                    stackSize -= hasResult ? 1 : 0;
+                                }
+                                else
+                                {
+                                    var m = (ins.Operand as MethodReference).Resolve();
+
+                                    stackSize -= GetArgCount(m);
+                                }
+                                break;
+                            }
+
+                        default:
+                            throw new NotSupportedException(ins.OpCode.StackBehaviourPop.ToString());
+                    }
+
+                    switch (ins.OpCode.StackBehaviourPush)
+                    {
+                        case StackBehaviour.Push0: break;
+
+                        case StackBehaviour.Push1: stackSize += 1; break;
+
+                        case StackBehaviour.Push1_push1: stackSize += 2; break;
+
+                        case StackBehaviour.Pushi:
+                        case StackBehaviour.Pushi8: stackSize += 1; break;
+
+                        case StackBehaviour.Varpush:
+                            {
+                                var m = (ins.Operand as MethodReference).Resolve();
+                                if (m.MethodReturnType.ReturnType != m.Module.TypeSystem.Void) stackSize++;
+                                break;
+                            }
+
+                        default:
+                            throw new NotSupportedException(ins.OpCode.StackBehaviourPush.ToString());
+                    }
+
+                    switch (ins.OpCode.FlowControl)
+                    {
+                        case FlowControl.Next:
+                        case FlowControl.Call: break;
+                        case FlowControl.Return:
+                            {
+                                entry = -1;
+                                break;
+                            }
+
+                        case FlowControl.Branch:
+                            {
+                                var target = ins.Operand as Instruction;
+
+                                toVisit.Enqueue(instructions.IndexOf(target));
+                                res[target].Enter(stackSize, ins);
+
+                                entry = -1;
+
+                                break;
+                            }
+                        case FlowControl.Cond_Branch:
+                            {
+                                if (ins.OpCode.Code == Code.Switch)
+                                {
+                                    foreach (var target in (ins.Operand as Instruction[]))
+                                    {
+                                        toVisit.Enqueue(instructions.IndexOf(target));
+                                        res[target].Enter(stackSize, ins);
+                                    }
+                                }
+                                else
+                                {
+                                    var target = ins.Operand as Instruction;
+
+                                    toVisit.Enqueue(instructions.IndexOf(target));
+                                    res[target].Enter(stackSize, ins);
+                                }
+
+                                break;
+                            }
+                        default:
+                            throw new NotSupportedException(ins.OpCode.FlowControl.ToString());
+                    }
+                }
+            }
+
+            return res;
+        }
+
+        private void Execute(bool hasThis, bool hasResult, List<Instruction> instructions, List<Operand> arguments)
         {
             // First insert jump points
             var block = Method.Entry;
@@ -24,6 +188,15 @@ namespace CilLogic.CodeModel
 
             foreach (var ins in instructions)
                 jumpPoints[ins] = block.Append(Opcode.Nop);
+
+            // Analyze priors and stack sizes
+            var info = Analyze(instructions, hasResult);
+
+            foreach (var f in info.Where(x => (x.Value.StackSize > 0) && (x.Value.Priors.Count > 1)))
+            {
+                Console.WriteLine("Entry: {0}", f.Key);
+                f.Value.Priors.ToList().ForEach(e => Console.WriteLine(" From: " + e));
+            }
 
             var stack = new Stack<Operand>();
 
@@ -34,14 +207,26 @@ namespace CilLogic.CodeModel
             foreach (var ins in instructions)
             {
                 var pt = jumpPoints[ins];
-                Func<Opcode, Opcode> Observe = o => 
+                Func<Opcode, Opcode> Observe = o =>
                 {
-                    switch(o.Op)
+                    switch (o.Op)
                     {
+                        case Op.Br:
+                            {
+                                break;
+                            }
                         case Op.BrFalse:
                         case Op.BrTrue:
-                            if(stack.Count == 1)
-                                stack.Push(stack.Peek()); 
+                            {
+                                foreach (var x in stack.Reverse().ToList())
+                                    stack.Push(x);
+                                break;
+                            }
+                        case Op.Switch:
+                            {
+                                break;
+                            }
+                        default:
                             break;
                     }
 
@@ -50,9 +235,7 @@ namespace CilLogic.CodeModel
                     return o;
                 };
 
-                //Console.WriteLine(ins);
-
-                Action<int, int> Convert = (s,w) => Push(Observe(new Opcode(Method.GetValue(), Op.Conv, Pop(), s, w)));
+                Action<int, int> Convert = (s, w) => Push(Observe(new Opcode(Method.GetValue(), Op.Conv, Pop(), s, w)));
 
                 switch (ins.OpCode.Code)
                 {
@@ -64,46 +247,46 @@ namespace CilLogic.CodeModel
                             else
                                 Observe(new Opcode(0, Op.Return));
                             break;
-                        } 
+                        }
 
-                    case Code.Switch: Observe(new Opcode(0, Op.Switch, new Operand[]{ Pop()}.Concat(((Instruction[])ins.Operand).Select<Instruction, Operand>(x => jumpPoints[x])).ToArray())); break;
+                    case Code.Switch: Observe(new Opcode(0, Op.Switch, new Operand[] { Pop() }.Concat(((Instruction[])ins.Operand).Select<Instruction, Operand>(x => jumpPoints[x])).ToArray())); break;
 
                     case Code.Br: case Code.Br_S: Observe(new Opcode(0, Op.Br, jumpPoints[ins.Operand as Instruction])); break;
 
                     case Code.Brfalse: case Code.Brfalse_S: Observe(new Opcode(0, Op.BrFalse, Pop(), jumpPoints[ins.Operand as Instruction])); break;
-                    case Code.Brtrue:  case Code.Brtrue_S:  Observe(new Opcode(0, Op.BrTrue, Pop(), jumpPoints[ins.Operand as Instruction])); break;
+                    case Code.Brtrue: case Code.Brtrue_S: Observe(new Opcode(0, Op.BrTrue, Pop(), jumpPoints[ins.Operand as Instruction])); break;
 
                     case Code.Dup: stack.Push(stack.Peek()); break;
                     case Code.Pop: Pop(); break;
 
-                    case Code.Beq_S: case Code.Beq:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Ceq, v1,v2))), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Bne_Un_S: case Code.Bne_Un: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Ceq, v1,v2))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Beq_S: case Code.Beq: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Ceq, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bne_Un_S: case Code.Bne_Un: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Ceq, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Bge: case Code.Bge_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Bge_Un: case Code.Bge_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v2,v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bge: case Code.Bge_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bge_Un: case Code.Bge_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Ble: case Code.Ble_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Ble: case Code.Ble_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
                     case Code.Ble_Un: case Code.Ble_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Bgt: case Code.Bgt_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bgt: case Code.Bgt_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
                     case Code.Bgt_Un: case Code.Bgt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Blt: case Code.Blt_S:       { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Blt: case Code.Blt_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
                     case Code.Blt_Un: case Code.Blt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Ceq:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Ceq, a, b))); break; }
-                    case Code.Cgt:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Clt, b, a))); break; }
+                    case Code.Ceq: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Ceq, a, b))); break; }
+                    case Code.Cgt: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Clt, b, a))); break; }
                     case Code.Cgt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Cltu, b, a))); break; }
-                    case Code.Clt:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Clt, b, a))); break; }
+                    case Code.Clt: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Clt, b, a))); break; }
                     case Code.Clt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Cltu, b, a))); break; }
 
-                    case Code.Add:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Add, a, b))); break; }
-                    case Code.Sub:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Sub, a, b))); break; }
-                    case Code.And:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.And, a, b))); break; }
-                    case Code.Or:     { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Or, a, b))); break; }
-                    case Code.Xor:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Xor, a, b))); break; }
-                    case Code.Shl:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Lsl, a, b))); break; }
-                    case Code.Shr:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Asr, a, b))); break; }
+                    case Code.Add: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Add, a, b))); break; }
+                    case Code.Sub: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Sub, a, b))); break; }
+                    case Code.And: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.And, a, b))); break; }
+                    case Code.Or: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Or, a, b))); break; }
+                    case Code.Xor: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Xor, a, b))); break; }
+                    case Code.Shl: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Lsl, a, b))); break; }
+                    case Code.Shr: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Asr, a, b))); break; }
                     case Code.Shr_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Lsr, a, b))); break; }
 
                     case Code.Ldarg_0: stack.Push(arguments[0]); break;
@@ -114,7 +297,7 @@ namespace CilLogic.CodeModel
                     case Code.Ldarg: stack.Push(arguments[(ins.Operand as ParameterDefinition).Index]); break;
 
                     case Code.Ldc_I4_S: stack.Push((int)(sbyte)ins.Operand); break;
-                    case Code.Ldc_I4:   stack.Push((int)ins.Operand); break;
+                    case Code.Ldc_I4: stack.Push((int)ins.Operand); break;
                     case Code.Ldc_I4_0: stack.Push(0); break;
                     case Code.Ldc_I4_1: stack.Push(1); break;
                     case Code.Ldc_I4_2: stack.Push(2); break;
@@ -157,41 +340,41 @@ namespace CilLogic.CodeModel
                             break;
                         }
 
-                    case Code.Conv_I:  Convert(1,8); break;
-                    case Code.Conv_I1: Convert(1,1); break;
-                    case Code.Conv_I2: Convert(1,2); break;
-                    case Code.Conv_I4: Convert(1,4); break;
-                    case Code.Conv_I8: Convert(1,8); break;
+                    case Code.Conv_I: Convert(1, 8); break;
+                    case Code.Conv_I1: Convert(1, 1); break;
+                    case Code.Conv_I2: Convert(1, 2); break;
+                    case Code.Conv_I4: Convert(1, 4); break;
+                    case Code.Conv_I8: Convert(1, 8); break;
 
-                    case Code.Conv_Ovf_I:  Convert(1,8); break;
-                    case Code.Conv_Ovf_I1: Convert(1,1); break;
-                    case Code.Conv_Ovf_I2: Convert(1,2); break;
-                    case Code.Conv_Ovf_I4: Convert(1,4); break;
-                    case Code.Conv_Ovf_I8: Convert(1,8); break;
+                    case Code.Conv_Ovf_I: Convert(1, 8); break;
+                    case Code.Conv_Ovf_I1: Convert(1, 1); break;
+                    case Code.Conv_Ovf_I2: Convert(1, 2); break;
+                    case Code.Conv_Ovf_I4: Convert(1, 4); break;
+                    case Code.Conv_Ovf_I8: Convert(1, 8); break;
 
-                    case Code.Conv_Ovf_I_Un:  Convert(1,8); break;
-                    case Code.Conv_Ovf_I1_Un: Convert(1,1); break;
-                    case Code.Conv_Ovf_I2_Un: Convert(1,2); break;
-                    case Code.Conv_Ovf_I4_Un: Convert(1,4); break;
-                    case Code.Conv_Ovf_I8_Un: Convert(1,8); break;
+                    case Code.Conv_Ovf_I_Un: Convert(1, 8); break;
+                    case Code.Conv_Ovf_I1_Un: Convert(1, 1); break;
+                    case Code.Conv_Ovf_I2_Un: Convert(1, 2); break;
+                    case Code.Conv_Ovf_I4_Un: Convert(1, 4); break;
+                    case Code.Conv_Ovf_I8_Un: Convert(1, 8); break;
 
-                    case Code.Conv_U:  Convert(0,8); break;
-                    case Code.Conv_U1: Convert(0,1); break;
-                    case Code.Conv_U2: Convert(0,2); break;
-                    case Code.Conv_U4: Convert(0,4); break;
-                    case Code.Conv_U8: Convert(0,8); break;
+                    case Code.Conv_U: Convert(0, 8); break;
+                    case Code.Conv_U1: Convert(0, 1); break;
+                    case Code.Conv_U2: Convert(0, 2); break;
+                    case Code.Conv_U4: Convert(0, 4); break;
+                    case Code.Conv_U8: Convert(0, 8); break;
 
-                    case Code.Conv_Ovf_U:  Convert(0,8); break;
-                    case Code.Conv_Ovf_U1: Convert(0,1); break;
-                    case Code.Conv_Ovf_U2: Convert(0,2); break;
-                    case Code.Conv_Ovf_U4: Convert(0,4); break;
-                    case Code.Conv_Ovf_U8: Convert(0,8); break;
+                    case Code.Conv_Ovf_U: Convert(0, 8); break;
+                    case Code.Conv_Ovf_U1: Convert(0, 1); break;
+                    case Code.Conv_Ovf_U2: Convert(0, 2); break;
+                    case Code.Conv_Ovf_U4: Convert(0, 4); break;
+                    case Code.Conv_Ovf_U8: Convert(0, 8); break;
 
-                    case Code.Conv_Ovf_U_Un:  Convert(0,8); break;
-                    case Code.Conv_Ovf_U1_Un: Convert(0,1); break;
-                    case Code.Conv_Ovf_U2_Un: Convert(0,2); break;
-                    case Code.Conv_Ovf_U4_Un: Convert(0,4); break;
-                    case Code.Conv_Ovf_U8_Un: Convert(0,8); break;
+                    case Code.Conv_Ovf_U_Un: Convert(0, 8); break;
+                    case Code.Conv_Ovf_U1_Un: Convert(0, 1); break;
+                    case Code.Conv_Ovf_U2_Un: Convert(0, 2); break;
+                    case Code.Conv_Ovf_U4_Un: Convert(0, 4); break;
+                    case Code.Conv_Ovf_U8_Un: Convert(0, 8); break;
 
                     case Code.Call:
                     case Code.Callvirt:
@@ -200,8 +383,8 @@ namespace CilLogic.CodeModel
 
                             var v = 0;
                             if (m.MethodReturnType.ReturnType != m.Module.TypeSystem.Void) v = Method.GetValue();
-                            
-                            var op = Observe(new Opcode(v, Op.Call, new Operand[]{ new MethodOperand(m) }.Concat(Enumerable.Range(0, GetArgCount(m)).Select(i => Pop()).ToArray().Reverse()).ToArray()));
+
+                            var op = Observe(new Opcode(v, Op.Call, new Operand[] { new MethodOperand(m) }.Concat(Enumerable.Range(0, GetArgCount(m)).Select(i => Pop()).ToArray().Reverse()).ToArray()));
 
                             if (m.MethodReturnType.ReturnType != m.Module.TypeSystem.Void) Push(op);
 
@@ -210,7 +393,7 @@ namespace CilLogic.CodeModel
 
                     case Code.Ldloca_S:
                     case Code.Ldloca: Push(Observe(new Opcode(Method.GetValue(), Op.LdLocA, (ins.Operand as VariableReference).Index))); break;
-                    
+
                     //case Code.Ldloca: Push(Observe(new Opcode(Method.GetValue(), Op.LdLocA, (ins.Operand as VariableReference).Index))); break;
 
                     case Code.Ldloc_0: Push(Observe(new Opcode(Method.GetValue(), Op.LdLoc, 0))); break;
@@ -227,7 +410,11 @@ namespace CilLogic.CodeModel
                     case Code.Stloc_S:
                     case Code.Stloc: Observe(new Opcode(0, Op.StLoc, (ins.Operand as VariableReference).Index, Pop())); break;
 
-                    case Code.Ldfld: stack.Push(new FieldOperand((FieldReference)ins.Operand)); break;
+                    case Code.Ldfld:
+                        {
+                            Push(Observe(new Opcode(Method.GetValue(), Op.LdFld, Pop(), new FieldOperand((FieldReference)ins.Operand))));
+                            break;
+                        }
                     case Code.Stfld:
                         {
                             var value = Pop();
@@ -244,12 +431,12 @@ namespace CilLogic.CodeModel
 
         private int GetArgCount(MethodDefinition m)
         {
-            return (m.IsStatic ? 0 : 1) + m.Parameters.Count;
+            return (m.HasThis ? 1 : 0) + m.Parameters.Count;
         }
 
         public Interpreter(MethodDefinition method, List<Operand> arguments = default(List<Operand>))
         {
-            if (arguments == null) 
+            if (arguments == null)
             {
                 arguments = new List<Operand>();
                 if (method.HasThis)
@@ -258,7 +445,7 @@ namespace CilLogic.CodeModel
 
             Method = new Method(method.Body.Variables.Count);
 
-            Execute(method.HasThis, method.MethodReturnType.ReturnType != method.Module.TypeSystem.Void, method.Body.Instructions, arguments);
+            Execute(method.HasThis, method.MethodReturnType.ReturnType != method.Module.TypeSystem.Void, method.Body.Instructions.ToList(), arguments);
             Method.Fragment();
         }
     }

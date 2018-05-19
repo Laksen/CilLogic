@@ -1,7 +1,7 @@
 using System;
 using CilLogic.CodeModel;
 
-namespace CilLogic
+namespace CilLogic.Types
 {
     public abstract class Actor
     {
@@ -13,19 +13,19 @@ namespace CilLogic
         public abstract void Execute();
     }
 
-    public interface IPipe<T> where T : struct, IConvertible
+    public interface IPipe<T> where T : struct
     {
 
     }
 
-    public interface IInput<T> : IPipe<T> where T : struct, IConvertible
+    public interface IInput<T> : IPipe<T> where T : struct
     {
         [Operation(Op.ReadValid)]
         bool DataValid();
         [Operation(Op.ReadPort)]
         T ReadValue();
     }
-    public interface IOutput<T> : IPipe<T> where T : struct, IConvertible
+    public interface IOutput<T> : IPipe<T> where T : struct
     {
         [Operation(Op.ReadReady)]
         bool CanWrite();
@@ -45,16 +45,26 @@ namespace CilLogic
 
     public static class PipeHelpers
     {
-        public static void Write<T>(this IOutput<T> output, T value, Actor actor) where T : struct, IConvertible
+        public static void Write<T>(this IOutput<T> output, T value, Actor actor) where T : struct
         {
             while (!output.CanWrite()) actor.Stall();
             output.WriteValue(value);
         }
         
-        public static T Read<T>(this IInput<T> output, Actor actor) where T : struct, IConvertible
+        public static T Read<T>(this IInput<T> output, Actor actor) where T : struct
         {
             while (!output.DataValid()) actor.Stall();
             return output.ReadValue();
+        }
+    }
+
+    public class BitWidthAttribute : Attribute
+    {
+        public int Width { get; }
+
+        public BitWidthAttribute(int width)
+        {
+            Width = width;
         }
     }
 }
