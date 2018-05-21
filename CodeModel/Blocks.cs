@@ -26,6 +26,8 @@ namespace CilLogic.CodeModel
         Ceq, Clt, Cltu,
         Slice,
 
+        InitObj,
+        CreateStruct,
         LdFld, StFld,
         LdArray, StArray,
         LdLoc, StLoc,
@@ -40,6 +42,7 @@ namespace CilLogic.CodeModel
         ReadPort, ReadValid,
         Stall,
         Mux,
+        Insert,
     }
 
     public class Opcode
@@ -87,6 +90,8 @@ namespace CilLogic.CodeModel
                 case Op.StArray:
                 case Op.StFld:
                 case Op.StLoc:
+
+                case Op.InitObj:
 
                 case Op.Switch:
                 case Op.Br:

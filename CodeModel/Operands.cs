@@ -140,4 +140,24 @@ namespace CilLogic.CodeModel
             this.Method = method;
         }
     }
+
+    public class LocOperand : Operand
+    {
+        public int Location { get; }
+
+        public LocOperand(int location)
+        {
+            Location = location;
+        }
+    }
+
+    public class TypeOperand : Operand
+    {
+        public TypeDefinition TypeDef { get; }
+
+        public TypeOperand(TypeDefinition typeDef)
+        {
+            TypeDef = typeDef;
+        }
+    }
 }

@@ -19,7 +19,7 @@ namespace CilLogic.Utilities
                 for (int i = 0; i < 64; i++)
                     if ((((UInt64)1) << i) == value)
                         bits = i;
-                        
+
                 return true;
             }
             else
@@ -135,8 +135,66 @@ namespace CilLogic.Utilities
         }
     }
 
+    public struct FieldInfo
+    {
+        public int Msb, Lsb;
+    }
+
     public static class AssemblyHelpers
     {
+        public static int GetWidth(this TypeReference type)
+        {
+            var r = type.Resolve();
+
+            if (r == r.Module.TypeSystem.SByte) return 8;
+            if (r == r.Module.TypeSystem.Int16) return 16;
+            if (r == r.Module.TypeSystem.Int32) return 32;
+            if (r == r.Module.TypeSystem.Int64) return 64;
+
+            if (r == r.Module.TypeSystem.Byte) return 8;
+            if (r == r.Module.TypeSystem.UInt16) return 16;
+            if (r == r.Module.TypeSystem.UInt32) return 32;
+            if (r == r.Module.TypeSystem.UInt64) return 64;
+
+            throw new NotSupportedException("Type not detected");
+        }
+
+        public static int GetWidth(this FieldReference field)
+        {
+            var r = field.Resolve();
+
+            if (r.CustomAttributes.Any(t => t.AttributeType.Resolve().FullName == typeof(BitWidthAttribute).FullName))
+            {
+                var w = r.CustomAttributes.First(t => t.AttributeType.Resolve().FullName == typeof(BitWidthAttribute).FullName);
+                return (Int32)w.ConstructorArguments[0].Value;
+            }
+
+            return field.FieldType.GetWidth();
+        }
+
+        public static FieldInfo GetInfo(this FieldDefinition field, TypeDefinition scope)
+        {
+            var lsb = 0;
+            var width = field.GetWidth();
+
+            if (field.DeclaringType == scope)
+            {
+                for (int i = 0; i < scope.Fields.Count; i++)
+                {
+                    if (scope.Fields[i] == field)
+                        return new FieldInfo { Lsb = lsb, Msb = lsb + width - 1 };
+                    else
+                        lsb += scope.Fields[i].FieldType.GetWidth();
+                }
+            }
+            else
+            {
+                throw new NotSupportedException("structs inside structs");
+            }
+
+            throw new InvalidOperationException("Could not find field");
+        }
+
         public static int GetArgCount(this MethodDefinition m)
         {
             return (m.HasThis ? 1 : 0) + m.Parameters.Count;

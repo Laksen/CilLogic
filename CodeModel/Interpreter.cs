@@ -413,9 +413,7 @@ namespace CilLogic.CodeModel
                         }
 
                     case Code.Ldloca_S:
-                    case Code.Ldloca: Push(Observe(new Opcode(Method.GetValue(), Op.LdLocA, (ins.Operand as VariableReference).Index))); break;
-
-                    //case Code.Ldloca: Push(Observe(new Opcode(Method.GetValue(), Op.LdLocA, (ins.Operand as VariableReference).Index))); break;
+                    case Code.Ldloca: stack.Push(new LocOperand((ins.Operand as VariableReference).Index)); break;
 
                     case Code.Ldloc_0: Push(Observe(new Opcode(Method.GetValue(), Op.LdLoc, 0))); break;
                     case Code.Ldloc_1: Push(Observe(new Opcode(Method.GetValue(), Op.LdLoc, 1))); break;
@@ -441,6 +439,15 @@ namespace CilLogic.CodeModel
                             var value = Pop();
                             var obj = Pop();
                             Observe(new Opcode(Method.GetValue(), Op.StFld, obj, new FieldOperand((FieldReference)ins.Operand), value));
+                            break;
+                        }
+
+                    case Code.Initobj:
+                        {
+                            var typ = (ins.Operand as TypeReference).Resolve();
+
+                            var addr = Pop();
+                            Observe(new Opcode(0, Op.InitObj, addr, new TypeOperand(typ)));
                             break;
                         }
 

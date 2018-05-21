@@ -19,12 +19,19 @@ namespace CilLogic.Tests
         public UInt32 Operand;
     }
 
+    public struct OutMessage
+    {
+        public UInt32 Count;
+        public UInt32 Sum;
+    }
+
     public class MessageIO : Actor
     {
         public IInput<InMessage> InPort { get; set; }
-        public IOutput<UInt32> OutPort { get; set; }
+        public IOutput<OutMessage> OutPort { get; set; }
 
         private UInt32 accumulator = 0;
+        private UInt32 count = 0;
 
         public override void Execute()
         {
@@ -39,9 +46,10 @@ namespace CilLogic.Tests
                     break;
                 case InType.Accumulate:
                     newAcc += msg.Operand;
+                    count++;
                     break;
                 case InType.Propagate:
-                    OutPort.Write(newAcc, this);
+                    OutPort.Write(new OutMessage { Sum = accumulator, Count = count }, this);
                     break;
             }
 
