@@ -131,12 +131,17 @@ namespace CilLogic.Utilities
 
         public static List<BasicBlock> NextBlocks(this BasicBlock block)
         {
-            return block.Instructions.Last().Operands.OfType<BlockOperand>().Select(x => x.Block).ToList();
+            return block.Instructions.SelectMany(o => o.Operands).OfType<BlockOperand>().Select(x => x.Block).ToList();
         }
     }
 
     public static class AssemblyHelpers
     {
+        public static int GetArgCount(this MethodDefinition m)
+        {
+            return (m.HasThis ? 1 : 0) + m.Parameters.Count;
+        }
+
         private static Dictionary<AssemblyDefinition, ILookup<string, TypeDefinition>> asmTypes = new Dictionary<AssemblyDefinition, ILookup<string, TypeDefinition>>();
 
         public static TypeDefinition FindType(this AssemblyDefinition asm, string fullName)

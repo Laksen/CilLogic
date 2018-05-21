@@ -44,10 +44,10 @@ namespace CilLogic.CodeModel.Passes
 
             // Add initialization
             foreach(var locs in entryLocals[method.Entry])
-                method.Entry.Prepend(new Opcode(locs, Op.Mov, new UndefOperand()));
+                method.Entry.Prepend(new Opcode(locs, Op.Mov, 0));
 
             // Add phi nodes
-            var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.Last().Operands.OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
+            var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.SelectMany(o => o.Operands).OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
             foreach(var block in method.Blocks.Where(b => b != method.Entry))
             {
                 var prevBlocks = nextBlocks.Where(kvp => kvp.Value.Contains(block)).Select(x => x.Key).ToList();

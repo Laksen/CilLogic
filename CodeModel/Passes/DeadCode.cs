@@ -4,40 +4,66 @@ using System.Linq;
 
 namespace CilLogic.CodeModel.Passes
 {
-    public class PassDeadCode : CodePass
+    public class PassDeadValues : CodePass
     {
-        private void RemoveUnused(Method method)
+        public override void Pass(Method method)
         {
-            bool wasSuccess = false;
+            // Simple instr removal
+            var instrs = method.Blocks.SelectMany(o => o.Instructions).ToHashSet();
 
-            // TODO: Use decrementing operations instead of calculating everything again and again
-            do
+            var instrProvides = instrs.ToDictionary(i => i, i => i.Result);
+
+            var instrProviders = instrProvides.Where(kvp => kvp.Value != 0).ToDictionary(i => i.Value, i => i.Key);
+            var usages = instrs.ToDictionary(i => i, i => i.Operands.OfType<ValueOperand>().Select(v => v.Value).Concat(
+                i.Operands.OfType<PhiOperand>().Select(v => v.Value).OfType<ValueOperand>().Select(v => v.Value)).Distinct().ToList());
+            
+            var instrUsers = instrs.ToDictionary(i => i, i => new HashSet<Opcode>());
+            foreach(var usage in usages)
+                foreach(var value in usage.Value)
+                    if (instrProviders.ContainsKey(value))
+                        instrUsers[instrProviders[value]].Add(usage.Key);
+
+            var useCount = instrs.ToDictionary(i => i, i => (i.HasSideEffects() ? 1 : 0) + instrUsers[i].Count);
+
+            while (true)
             {
-                wasSuccess = false;
-
-                // Simple instr removal
-                var instrs = method.Blocks.SelectMany(o => o.Instructions).ToHashSet();
-
-                var instrProvides = instrs.ToDictionary(i => i, i => i.Result);
-
-                var instrProviders = instrProvides.Where(kvp => kvp.Value != 0).ToDictionary(i => i.Value, i => i.Key);
-                var usages = instrs.ToDictionary(i => i, i => i.Operands.OfType<ValueOperand>().Select(v => v.Value).Concat(
-                    i.Operands.OfType<PhiOperand>().Select(v => v.Value).OfType<ValueOperand>().Select(v => v.Value)).Distinct().ToList());
-                var instrUsers = instrs.ToDictionary(i => i, i => usages.Where(u => u.Value.Contains(i.Result)).Select(u => u.Key).ToList());
-
-                var useCount = instrs.ToDictionary(i => i, i => (i.HasSideEffects() ? 1 : 0) + instrUsers[i].Count());
-
                 var toRemove = useCount.Where(kvp => kvp.Value == 0).Select(kvp => kvp.Key).ToList();
+
+                if (toRemove.Count == 0) break;
 
                 foreach (var instr in toRemove)
                 {
-                    wasSuccess = true;
                     instr.Block.Instructions.Remove(instr);
+
+                    if (instr.Result != 0) instrProviders.Remove(instr.Result);
+
+                    foreach (var oper in instr.Operands)
+                    {
+                        var op = 0;
+                        if ((oper is PhiOperand po) && (po.Value is ValueOperand vo))
+                            op = vo.Value;
+                        else if (oper is ValueOperand vo2)
+                            op = vo2.Value;
+
+                        if (op != 0)
+                        {
+                            if (instrProviders.ContainsKey(op))
+                            {
+                                var provider = instrProviders[op];
+                                useCount[provider]--;
+                            }
+                        }
+                    }
+
+                    useCount.Remove(instr);
+                    instrUsers.Remove(instr);
                 }
             }
-            while (wasSuccess);
         }
+    }
 
+    public class PassDeadCode : CodePass
+    {
         private void RemoveStaleBranches(Method method)
         {
             foreach (var bb in method.Blocks)
@@ -51,28 +77,77 @@ namespace CilLogic.CodeModel.Passes
 
         private void RemoveDeadBlocks(Method method)
         {
-            bool wasSuccess = true;
+            /*bool wasSuccess = true;
             while (wasSuccess)
             {
-                var targets = method.Blocks.SelectMany(b => b.Instructions.SelectMany(i => i.Operands.OfType<BlockOperand>().Select(bo => bo.Block))).ToHashSet();
+                var targets = method.Blocks.SelectMany(b => b.Instructions.SelectMany(i => i.Operands.OfType<BlockOperand>().Select(bo => bo.Block))).Concat(new[] { method.Entry }).ToHashSet();
 
-                wasSuccess = method.Blocks.RemoveAll(b => !(b == method.Entry || targets.Contains(b))) > 0;
+                wasSuccess = method.Blocks.RemoveAll(b => !targets.Contains(b)) > 0;
+            }*/
+
+            HashSet<BasicBlock> visited = new HashSet<BasicBlock>();
+            HashSet<BasicBlock> unused = new HashSet<BasicBlock>(method.Blocks);
+
+            Queue<BasicBlock> toVisit = new Queue<BasicBlock>(new[] { method.Entry });
+
+            Action<BasicBlock> doVisit = n =>
+            {
+                if (!visited.Contains(n))
+                {
+                    visited.Add(n);
+                    unused.Remove(n);
+
+                    foreach (var x in n.Instructions.SelectMany(i => i.Operands))
+                        if (x is BlockOperand bo)
+                            toVisit.Enqueue(bo.Block);
+                }
+            };
+
+            while (toVisit.Count > 0)
+            {
+                var n = toVisit.Dequeue();
+                doVisit(n);
             }
+
+            if (unused.Count > 0)
+                method.Blocks.RemoveAll(unused.Contains);
         }
 
         private void RemoveDeadJumps(Method method)
         {
-            var jumpBlocks = method.Blocks.Where(b => (b.Instructions.Count == 1) && (b.Instructions[0].Op == Op.Br)).ToList();
-
-            var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.Last().Operands.OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
-            foreach (var blk in jumpBlocks)
+            bool wasOk = true;
+            while (wasOk)
             {
-                var prevBlocks = nextBlocks.Where(kvp => kvp.Value.Contains(blk)).Select(x => x.Key).ToList();
+                wasOk = false;
+                var jumpBlocks = method.Blocks.Where(b => (b.Instructions.Count == 1) && (b.Instructions[0].Op == Op.Br) && (b != method.Entry)).ToList();
 
-                if (prevBlocks.Count > 1) continue; // TODO: Fix up phi nodes
+                var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.SelectMany(o => o.Operands).OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
+                foreach (var blk in jumpBlocks)
+                {
+                    var prevBlocks = nextBlocks.Where(kvp => kvp.Value.Contains(blk)).Select(x => x.Key).ToList();
 
-                method.ReplaceBlockOperand(blk, blk.Instructions[0][0] as BlockOperand);
+                    if (prevBlocks.Count != 1) continue;
+                    if (nextBlocks[blk].Count != 1) continue;
+
+                    var next = nextBlocks[blk].Single();
+
+                    var nextPrevs = nextBlocks.Where(kvp => kvp.Value.Contains(next)).Select(x => x.Key).ToList();
+                    if (nextPrevs.Contains(prevBlocks.Single())) continue;
+
+                    if (next.Instructions.Any(i => (i.Op == Op.Phi) && ContainsPhiSource(i, prevBlocks[0]))) continue;
+
+                    method.ReplaceBlockOperand(blk, new BlockOperand(next));
+
+                    wasOk = true;
+                    break;
+                }
             }
+        }
+
+        private bool ContainsPhiSource(Opcode i, BasicBlock basicBlock)
+        {
+            return true;
+            //return i.Operands.OfType<PhiOperand>().Any(x => x.Block == basicBlock);
         }
 
         private void SpliceBlocks(Method method)
@@ -81,25 +156,28 @@ namespace CilLogic.CodeModel.Passes
             do
             {
                 wasOK = false;
-                var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.Last().Operands.OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
+                var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.SelectMany(o => o.Operands).OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
 
                 foreach (var block in method.Blocks)
                 {
                     var prevBlocks = nextBlocks.Where(kvp => kvp.Value.Contains(block)).Select(x => x.Key).ToList();
 
-                    if ((prevBlocks.Count == 1) && (nextBlocks[prevBlocks[0]].Count == 1))
+                    if ((prevBlocks.Count == 1) && 
+                        (nextBlocks[prevBlocks[0]].Count == 1) &&
+                        !block.Instructions.Any(i => i.Op == Op.Phi))
                     {
                         var pb = prevBlocks[0];
+                        
                         method.ReplaceBlockOperand(pb, new BlockOperand(block));
 
-                        foreach(var instr in pb.Instructions.Reverse<Opcode>().Skip(1))
+                        foreach (var instr in pb.Instructions.Reverse<Opcode>().Skip(1))
                             block.Prepend(instr);
 
                         method.Blocks.Remove(pb);
                         if (method.Entry == pb)
                             method.Entry = block;
 
-                        wasOK = false;
+                        wasOK = true;
                         break;
                     }
                 }
@@ -109,9 +187,9 @@ namespace CilLogic.CodeModel.Passes
 
         public override void Pass(Method method)
         {
-            RemoveUnused(method);
             RemoveStaleBranches(method);
-            //RemoveDeadJumps(method);
+            CodePass.DoPass<PassDeadValues>(method, ">");
+            RemoveDeadJumps(method);
             RemoveDeadBlocks(method);
             SpliceBlocks(method);
         }

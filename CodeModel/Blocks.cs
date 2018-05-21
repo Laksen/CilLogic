@@ -60,6 +60,7 @@ namespace CilLogic.CodeModel
             {
                 switch (Op)
                 {
+                    case Op.Switch:
                     case Op.BrCond:
                     case Op.BrFalse:
                     case Op.BrTrue:
@@ -96,6 +97,7 @@ namespace CilLogic.CodeModel
                 case Op.Call:
                 case Op.Return:
 
+                case Op.ReadPort:
                 case Op.WritePort:
                 case Op.Stall:
                     return true;
@@ -114,7 +116,6 @@ namespace CilLogic.CodeModel
         {
             switch (Op)
             {
-                case Op.Switch:
                 case Op.Return:
                 case Op.Br:
                 case Op.BrCond:
@@ -192,6 +193,8 @@ namespace CilLogic.CodeModel
                     newBlock.Append(instr);
                 }
 
+                Method.ReplacePhiSource(this, newBlock);
+
                 Append(new Opcode(0, Op.Br, new BlockOperand(newBlock)));
 
                 return newBlock;
@@ -265,13 +268,13 @@ namespace CilLogic.CodeModel
 
         public void Fragment()
         {
-            var jumpTargets = Blocks.SelectMany(b => b.Instructions.SelectMany(i => i.Operands)).OfType<InstrOperand>().Select(i => i.Instruction).ToList();
+            /*var jumpTargets = Blocks.SelectMany(b => b.Instructions.SelectMany(i => i.Operands)).OfType<InstrOperand>().Select(i => i.Instruction).ToList();
             foreach (var target in jumpTargets)
                 target.Block.SplitBefore(target);
 
             var jumps = Blocks.SelectMany(b => b.Instructions.Where(i => i.IsCondJump)).ToList();
             foreach (var target in jumps)
-                target.Block.SplitBefore(target.Next);
+                target.Block.SplitBefore(target.Next);*/
 
             foreach (var instr in Blocks.SelectMany(b => b.Instructions.Where(i => i.Operands.OfType<InstrOperand>().Any())))
             {
@@ -313,6 +316,16 @@ namespace CilLogic.CodeModel
                         instr.Operands[i] = newTarget;
                     else if ((instr.Operands[i] is PhiOperand po) && po.Block == target)
                         instr.Operands[i] = new PhiOperand(newTarget.Block, po.Value);
+            }
+        }
+
+        internal void ReplacePhiSource(BasicBlock target, BasicBlock newTarget)
+        {
+            foreach (var instr in Blocks.SelectMany(b => b.Instructions).ToList())
+            {
+                for (int i = 0; i < instr.Operands.Count; i++)
+                     if ((instr.Operands[i] is PhiOperand po) && po.Block == target)
+                        instr.Operands[i] = new PhiOperand(newTarget, po.Value);
             }
         }
 

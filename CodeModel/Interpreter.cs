@@ -4,6 +4,7 @@ using System.Linq;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using Mono.Collections.Generic;
+using CilLogic.Utilities;
 
 namespace CilLogic.CodeModel
 {
@@ -19,8 +20,17 @@ namespace CilLogic.CodeModel
         private class InstructionInfo
         {
             public HashSet<Instruction> Priors = new HashSet<Instruction>();
-            public int StackSize = 0;
+            public HashSet<Instruction> Nexts = new HashSet<Instruction>();
+
+            public Instruction NaturalNext = null;
+
+            public int StackSize = 0, OutStackSize = 0;
             public bool Entered = false;
+
+            public void ComeFrom(Instruction target)
+            {
+                Nexts.Add(target);
+            }
 
             public void Enter(int stackSize, Instruction from)
             {
@@ -38,27 +48,33 @@ namespace CilLogic.CodeModel
                     StackSize = stackSize;
                 }
             }
+
+            public void Leave(int stackSize)
+            {
+                OutStackSize = stackSize;
+            }
         }
 
-        private Dictionary<Instruction, InstructionInfo> Analyze(List<Instruction> instructions, bool hasResult)
+        private Dictionary<Instruction, T> Analyze<T>(List<Instruction> instructions, bool hasResult) where T : InstructionInfo, new()
         {
-            var res = new Dictionary<Instruction, InstructionInfo>();
-            foreach (var r in instructions) res[r] = new InstructionInfo();
+            var res = new Dictionary<Instruction, T>();
+            foreach (var r in instructions) res[r] = new T();
 
-            var toVisit = new Queue<int>();
+            var toVisit = new Queue<Tuple<int, Instruction>>();
             var visited = new HashSet<int>();
 
-            toVisit.Enqueue(0);
+            toVisit.Enqueue(new Tuple<int, Instruction>(0, null));
             res[instructions[0]].Enter(0, null);
 
             while (toVisit.Count > 0)
             {
-                var entry = toVisit.Dequeue();
+                var item = toVisit.Dequeue();
+                var entry = item.Item1;
 
                 if (visited.Contains(entry)) continue;
                 int stackSize = res[instructions[entry]].StackSize;
 
-                Instruction last = null;
+                Instruction last = item.Item2;
 
                 while ((entry < instructions.Count) && (entry >= 0))
                 {
@@ -99,7 +115,7 @@ namespace CilLogic.CodeModel
                                 {
                                     var m = (ins.Operand as MethodReference).Resolve();
 
-                                    stackSize -= GetArgCount(m);
+                                    stackSize -= m.GetArgCount();
                                 }
                                 break;
                             }
@@ -130,6 +146,10 @@ namespace CilLogic.CodeModel
                             throw new NotSupportedException(ins.OpCode.StackBehaviourPush.ToString());
                     }
 
+                    res[ins].Leave(stackSize);
+
+                    res[ins].NaturalNext = ins.Next;
+
                     switch (ins.OpCode.FlowControl)
                     {
                         case FlowControl.Next:
@@ -144,7 +164,7 @@ namespace CilLogic.CodeModel
                             {
                                 var target = ins.Operand as Instruction;
 
-                                toVisit.Enqueue(instructions.IndexOf(target));
+                                toVisit.Enqueue(new Tuple<int, Instruction>(instructions.IndexOf(target), ins));
                                 res[target].Enter(stackSize, ins);
 
                                 entry = -1;
@@ -157,7 +177,7 @@ namespace CilLogic.CodeModel
                                 {
                                     foreach (var target in (ins.Operand as Instruction[]))
                                     {
-                                        toVisit.Enqueue(instructions.IndexOf(target));
+                                        toVisit.Enqueue(new Tuple<int, Instruction>(instructions.IndexOf(target), ins));
                                         res[target].Enter(stackSize, ins);
                                     }
                                 }
@@ -165,7 +185,7 @@ namespace CilLogic.CodeModel
                                 {
                                     var target = ins.Operand as Instruction;
 
-                                    toVisit.Enqueue(instructions.IndexOf(target));
+                                    toVisit.Enqueue(new Tuple<int, Instruction>(instructions.IndexOf(target), ins));
                                     res[target].Enter(stackSize, ins);
                                 }
 
@@ -180,62 +200,63 @@ namespace CilLogic.CodeModel
             return res;
         }
 
-        private void Execute(bool hasThis, bool hasResult, List<Instruction> instructions, List<Operand> arguments)
+        private class InstrInfo : InstructionInfo
         {
-            // First insert jump points
-            var block = Method.Entry;
-            var jumpPoints = instructions.ToDictionary(i => i, i => (Opcode)null);
+            public BasicBlock Block;
+            public Dictionary<Instruction, Operand[]> PreStacks = new Dictionary<Instruction, Operand[]>();
+            public int[] PreCollectStack;
 
-            foreach (var ins in instructions)
-                jumpPoints[ins] = block.Append(Opcode.Nop);
+            public int[] OutStack;
 
-            // Analyze priors and stack sizes
-            var info = Analyze(instructions, hasResult);
-
-            foreach (var f in info.Where(x => (x.Value.StackSize > 0) && (x.Value.Priors.Count > 1)))
+            public void AllocInfo(Method method)
             {
-                Console.WriteLine("Entry: {0}", f.Key);
-                f.Value.Priors.ToList().ForEach(e => Console.WriteLine(" From: " + e));
+                Block = method.GetBlock();
+                Block.Append(new Opcode(0, Op.Nop));
+                PreStacks = new Dictionary<Instruction, Operand[]>();
+                PreCollectStack = Enumerable.Range(0, StackSize).Select(i => method.GetValue()).ToArray();
+                OutStack = Enumerable.Range(0, OutStackSize).Select(i => method.GetValue()).ToArray();
             }
 
-            var stack = new Stack<Operand>();
-
-            Func<Operand> Pop = () => stack.Pop();
-            Action<Opcode> Push = i => stack.Push(new ValueOperand(i.Result));
-
-            // Execute
-            foreach (var ins in instructions)
+            public void InsertPhis(Dictionary<Instruction, BasicBlock> blockSelector)
             {
-                var pt = jumpPoints[ins];
-                Func<Opcode, Opcode> Observe = o =>
-                {
-                    switch (o.Op)
-                    {
-                        case Op.Br:
-                            {
-                                break;
-                            }
-                        case Op.BrFalse:
-                        case Op.BrTrue:
-                            {
-                                foreach (var x in stack.Reverse().ToList())
-                                    stack.Push(x);
-                                break;
-                            }
-                        case Op.Switch:
-                            {
-                                break;
-                            }
-                        default:
-                            break;
-                    }
+                if (PreStacks.Count == 0)
+                    foreach (int i in Enumerable.Range(0, StackSize))
+                        Block.Prepend(new Opcode(PreCollectStack[i], Op.Mov, 0));
+                else if (PreStacks.Count == 1)
+                    foreach (int i in Enumerable.Range(0, StackSize))
+                        Block.Prepend(new Opcode(PreCollectStack[i], Op.Mov, PreStacks.Values.Single()[i]));
+                else
+                    foreach (int i in Enumerable.Range(0, StackSize))
+                        Block.Prepend(new Opcode(PreCollectStack[i], Op.Phi, PreStacks.Select(x => new PhiOperand(blockSelector[x.Key], x.Value[i])).ToArray()));
+            }
 
-                    block.InsertAfter(o, pt);
-                    pt = o;
-                    return o;
-                };
+            private Stack<Operand> stack;
 
-                Action<int, int> Convert = (s, w) => Push(Observe(new Opcode(Method.GetValue(), Op.Conv, Pop(), s, w)));
+            private Operand Pop()
+            {
+                return stack.Pop();
+            }
+
+            private void Push(Opcode i)
+            {
+                stack.Push(new ValueOperand(i.Result));
+            }
+
+            private Opcode Observe(Opcode o)
+            {
+                Block.Append(o);
+
+                return o;
+            }
+
+            private void Convert(Method Method, int sign, int width)
+            {
+                Push(Observe(new Opcode(Method.GetValue(), Op.Conv, Pop(), sign, width * 8)));
+            }
+
+            public void Execute(Instruction ins, bool hasResult, Dictionary<Instruction, Opcode> jumpPoints, Method Method, List<Operand> arguments)
+            {
+                stack = new Stack<Operand>(PreCollectStack.Select(x => new ValueOperand(x)));
 
                 switch (ins.OpCode.Code)
                 {
@@ -340,41 +361,41 @@ namespace CilLogic.CodeModel
                             break;
                         }
 
-                    case Code.Conv_I: Convert(1, 8); break;
-                    case Code.Conv_I1: Convert(1, 1); break;
-                    case Code.Conv_I2: Convert(1, 2); break;
-                    case Code.Conv_I4: Convert(1, 4); break;
-                    case Code.Conv_I8: Convert(1, 8); break;
+                    case Code.Conv_I: Convert(Method, 1, 8); break;
+                    case Code.Conv_I1: Convert(Method, 1, 1); break;
+                    case Code.Conv_I2: Convert(Method, 1, 2); break;
+                    case Code.Conv_I4: Convert(Method, 1, 4); break;
+                    case Code.Conv_I8: Convert(Method, 1, 8); break;
 
-                    case Code.Conv_Ovf_I: Convert(1, 8); break;
-                    case Code.Conv_Ovf_I1: Convert(1, 1); break;
-                    case Code.Conv_Ovf_I2: Convert(1, 2); break;
-                    case Code.Conv_Ovf_I4: Convert(1, 4); break;
-                    case Code.Conv_Ovf_I8: Convert(1, 8); break;
+                    case Code.Conv_Ovf_I: Convert(Method, 1, 8); break;
+                    case Code.Conv_Ovf_I1: Convert(Method, 1, 1); break;
+                    case Code.Conv_Ovf_I2: Convert(Method, 1, 2); break;
+                    case Code.Conv_Ovf_I4: Convert(Method, 1, 4); break;
+                    case Code.Conv_Ovf_I8: Convert(Method, 1, 8); break;
 
-                    case Code.Conv_Ovf_I_Un: Convert(1, 8); break;
-                    case Code.Conv_Ovf_I1_Un: Convert(1, 1); break;
-                    case Code.Conv_Ovf_I2_Un: Convert(1, 2); break;
-                    case Code.Conv_Ovf_I4_Un: Convert(1, 4); break;
-                    case Code.Conv_Ovf_I8_Un: Convert(1, 8); break;
+                    case Code.Conv_Ovf_I_Un: Convert(Method, 1, 8); break;
+                    case Code.Conv_Ovf_I1_Un: Convert(Method, 1, 1); break;
+                    case Code.Conv_Ovf_I2_Un: Convert(Method, 1, 2); break;
+                    case Code.Conv_Ovf_I4_Un: Convert(Method, 1, 4); break;
+                    case Code.Conv_Ovf_I8_Un: Convert(Method, 1, 8); break;
 
-                    case Code.Conv_U: Convert(0, 8); break;
-                    case Code.Conv_U1: Convert(0, 1); break;
-                    case Code.Conv_U2: Convert(0, 2); break;
-                    case Code.Conv_U4: Convert(0, 4); break;
-                    case Code.Conv_U8: Convert(0, 8); break;
+                    case Code.Conv_U: Convert(Method, 0, 8); break;
+                    case Code.Conv_U1: Convert(Method, 0, 1); break;
+                    case Code.Conv_U2: Convert(Method, 0, 2); break;
+                    case Code.Conv_U4: Convert(Method, 0, 4); break;
+                    case Code.Conv_U8: Convert(Method, 0, 8); break;
 
-                    case Code.Conv_Ovf_U: Convert(0, 8); break;
-                    case Code.Conv_Ovf_U1: Convert(0, 1); break;
-                    case Code.Conv_Ovf_U2: Convert(0, 2); break;
-                    case Code.Conv_Ovf_U4: Convert(0, 4); break;
-                    case Code.Conv_Ovf_U8: Convert(0, 8); break;
+                    case Code.Conv_Ovf_U: Convert(Method, 0, 8); break;
+                    case Code.Conv_Ovf_U1: Convert(Method, 0, 1); break;
+                    case Code.Conv_Ovf_U2: Convert(Method, 0, 2); break;
+                    case Code.Conv_Ovf_U4: Convert(Method, 0, 4); break;
+                    case Code.Conv_Ovf_U8: Convert(Method, 0, 8); break;
 
-                    case Code.Conv_Ovf_U_Un: Convert(0, 8); break;
-                    case Code.Conv_Ovf_U1_Un: Convert(0, 1); break;
-                    case Code.Conv_Ovf_U2_Un: Convert(0, 2); break;
-                    case Code.Conv_Ovf_U4_Un: Convert(0, 4); break;
-                    case Code.Conv_Ovf_U8_Un: Convert(0, 8); break;
+                    case Code.Conv_Ovf_U_Un: Convert(Method, 0, 8); break;
+                    case Code.Conv_Ovf_U1_Un: Convert(Method, 0, 1); break;
+                    case Code.Conv_Ovf_U2_Un: Convert(Method, 0, 2); break;
+                    case Code.Conv_Ovf_U4_Un: Convert(Method, 0, 4); break;
+                    case Code.Conv_Ovf_U8_Un: Convert(Method, 0, 8); break;
 
                     case Code.Call:
                     case Code.Callvirt:
@@ -384,7 +405,7 @@ namespace CilLogic.CodeModel
                             var v = 0;
                             if (m.MethodReturnType.ReturnType != m.Module.TypeSystem.Void) v = Method.GetValue();
 
-                            var op = Observe(new Opcode(v, Op.Call, new Operand[] { new MethodOperand(m) }.Concat(Enumerable.Range(0, GetArgCount(m)).Select(i => Pop()).ToArray().Reverse()).ToArray()));
+                            var op = Observe(new Opcode(v, Op.Call, new Operand[] { new MethodOperand(m) }.Concat(Enumerable.Range(0, m.GetArgCount()).Select(i => Pop()).ToArray().Reverse()).ToArray()));
 
                             if (m.MethodReturnType.ReturnType != m.Module.TypeSystem.Void) Push(op);
 
@@ -426,12 +447,47 @@ namespace CilLogic.CodeModel
                     default:
                         throw new Exception("Unhandled OP: " + ins);
                 }
+
+                foreach (var i in Enumerable.Range(0, OutStackSize))
+                    Block.Prepend(new Opcode(OutStack[OutStackSize - i - 1], Op.Mov, stack.Pop()));
             }
         }
 
-        private int GetArgCount(MethodDefinition m)
+        private void Execute(bool hasThis, bool hasResult, List<Instruction> instructions, List<Operand> arguments)
         {
-            return (m.HasThis ? 1 : 0) + m.Parameters.Count;
+            // First insert jump targets
+            var block = Method.Entry;
+
+            // Analyze priors and stack sizes
+            var info = Analyze<InstrInfo>(instructions, hasResult);
+            foreach (var i in info) i.Value.AllocInfo(Method);
+
+            // Analyze nexts
+            foreach (var i in info) i.Value.Priors.ToList().ForEach(v => info[v].ComeFrom(i.Key));
+
+            // Execute each instruction
+            var jumpPoints = info.ToDictionary(x => x.Key, x => x.Value.Block.Instructions.First());
+            foreach (var i in info)
+                i.Value.Execute(i.Key, hasResult, jumpPoints, Method, arguments);
+
+            // Add optional branches
+            foreach (var i in info)
+                if (i.Value.NaturalNext != null)
+                    i.Value.Block.Append(new Opcode(0, Op.Br, jumpPoints[i.Value.NaturalNext]));
+
+            // Update pre stacks
+            foreach (var i in info)
+                foreach (var next in i.Value.Nexts)
+                    info[next].PreStacks[i.Key] = i.Value.OutStack.Select(x => new ValueOperand(x)).ToArray();
+
+            // Insert phi nodes
+            var blockSelector = info.ToDictionary(x => x.Key, x => x.Value.Block);
+            foreach (var i in info)
+                i.Value.InsertPhis(blockSelector);
+
+            Method.Entry.Append(new Opcode(0, Op.Br, new BlockOperand(info.Values.First().Block)));
+
+            Method.Fragment();
         }
 
         public Interpreter(MethodDefinition method, List<Operand> arguments = default(List<Operand>))
@@ -446,7 +502,6 @@ namespace CilLogic.CodeModel
             Method = new Method(method.Body.Variables.Count);
 
             Execute(method.HasThis, method.MethodReturnType.ReturnType != method.Module.TypeSystem.Void, method.Body.Instructions.ToList(), arguments);
-            Method.Fragment();
         }
     }
 }

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace CilLogic.CodeModel.Passes
 {
@@ -6,24 +8,40 @@ namespace CilLogic.CodeModel.Passes
     {
         public abstract void Pass(Method method);
 
+        public static Dictionary<string, TimeSpan> PassTime = new Dictionary<string, TimeSpan>();
+
+        protected static void DoPass<T>(Method m, string tag = "") where T : CodePass, new()
+        {
+            Stopwatch s = Stopwatch.StartNew();
+            new T().Pass(m);
+            s.Stop();
+
+            var name = tag + typeof(T).Name;
+
+            if (!PassTime.ContainsKey(name))
+                PassTime[name] = new TimeSpan(0);
+
+            PassTime[name] += s.Elapsed;
+        }
+
         public static void Process(Method m, bool ssa = true)
         {
-            new PassDeadCode().Pass(m);
-            new PassPeephole().Pass(m);
-            new PassDeadCode().Pass(m);
+            DoPass<PassDeadCode>(m);
+            DoPass<PassPeephole>(m);
+            DoPass<PassDeadCode>(m);
 
-            new PassDeadCode().Pass(m);
-            
-            new InlinePass().Pass(m);
+            DoPass<PassDeadCode>(m);
 
-            new PassDeadCode().Pass(m);
+            DoPass<InlinePass>(m);
 
-            if (ssa) new SsaPass().Pass(m);
-            
-            for(int i=0; i<20; i++)
+            DoPass<PassDeadCode>(m);
+
+            if (ssa) DoPass<SsaPass>(m);
+
+            for (int i = 0; i < 20; i++)
             {
-                new PassPeephole().Pass(m);
-                new PassDeadCode().Pass(m);
+                DoPass<PassPeephole>(m);
+                DoPass<PassDeadCode>(m);
             }
         }
     }

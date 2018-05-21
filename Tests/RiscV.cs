@@ -96,14 +96,15 @@ namespace CilLogic.Tests
 
         static UInt64 AluOp(UInt64 a, UInt64 b, UInt64 f3, UInt64 f7, UInt64 shiftMask)
         {
+            int shift_op = (int)(b & shiftMask);
             switch (f3 & 7)
             {
                 case 0: return (f7 == 32) ? a - b : a + b;
-                case 1: return a << (int)(b & shiftMask);
+                case 1: return a << shift_op;
                 case 2: return (UInt64)(((Int64)a) < ((Int64)b) ? 1 : 0);
                 case 3: return (UInt64)(a < b ? 1 : 0);
                 case 4: return a ^ b;
-                case 5: if (f7 == 32) return ((UInt64)(((Int64)a) >> (int)(b & shiftMask))); else return (a >> (int)b);
+                case 5: if (f7 == 32) return ((UInt64)(((Int64)a) >> shift_op)); else return (a >> shift_op);
                 case 6: return a | b;
                 case 7: return a & b;
 
@@ -117,9 +118,9 @@ namespace CilLogic.Tests
 
             switch (f3 & 0x6)
             {
-                case 0: return a == b;
-                case 4: return ((Int64)a) < ((Int64)b);
-                case 6: return a < b;
+                case 0: res = a == b; break;
+                case 4: res = ((Int64)a) < ((Int64)b); break;
+                case 6: res = a < b; break;
             }
 
             return ((f3 & 0x1) != 0) ^ res;

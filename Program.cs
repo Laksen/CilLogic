@@ -44,10 +44,13 @@ namespace CilLogic
 
             CodePass.Process(inp.Method);
 
-            File.WriteAllText(@"C:\Users\jepjoh2\Desktop\New Text Document.txt", /*FlowGraph*/(inp.Method).ToString());
+            File.WriteAllText(@"C:\Users\jepjoh2\Desktop\New Text Document.txt", (inp.Method).ToString());
 
-            foreach(var scc in inp.Method.FindConnectedComponents().Where(x => x.Count > 1))
+            foreach (var scc in inp.Method.FindConnectedComponents().Where(x => x.Count > 1))
                 Console.WriteLine(string.Join(", ", scc.Select(x => x.Id)) + ": " + scc.All(s => s.IsStateInvariant()));
+
+            foreach (var s in CodePass.PassTime.OrderByDescending(o => o.Value))
+                Console.WriteLine($"{s.Key}: {s.Value}");
         }
     }
 }
