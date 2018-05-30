@@ -33,7 +33,7 @@ namespace CilLogic.Utilities
 
         private static Dictionary<TypeReference, bool> PortDict = new Dictionary<TypeReference, bool>();
 
-        private static bool IsPort(this TypeReference oper)
+        internal static bool IsPort(this TypeReference oper)
         {
             if (!PortDict.ContainsKey(oper))
             {
@@ -142,9 +142,74 @@ namespace CilLogic.Utilities
 
     public static class AssemblyHelpers
     {
-        public static int GetWidth(this TypeReference type)
+        public static TypeDefinition Resolve(this TypeReference type, MemberReference scope, Dictionary<GenericParameter, TypeDefinition> outerArgs)
+        {
+            var res = type.Resolve();
+            if (res != null) return res;
+
+            if (type.IsGenericParameter && (type is GenericParameter gp))
+            {
+                if (outerArgs != null && outerArgs.ContainsKey(gp))
+                    return outerArgs[gp];
+
+                if (scope != null && (scope is IGenericInstance git) && ((scope as MethodReference)?.GetElementMethod() is IGenericParameterProvider gpp) && gpp.GenericParameters.Contains(gp))
+                    return git.GenericArguments[gp.Position].Resolve(outerArgs);
+
+                if (scope != null && (scope is IGenericInstance git2) && ((scope as TypeReference)?.GetElementType() is IGenericParameterProvider gpp2) && gpp2.GenericParameters.Contains(gp))
+                    return git2.GenericArguments[gp.Position].Resolve(outerArgs);
+
+                if(scope.DeclaringType != null)
+                    return Resolve(type, scope.DeclaringType, outerArgs);
+            }
+
+            if (type is TypeDefinition td)
+                return td;
+
+            return null;
+        }
+
+        public static TypeDefinition Resolve(this TypeReference type, Dictionary<GenericParameter, TypeDefinition> scope)
+        {
+            var res = type.Resolve();
+            if (res != null) return res;
+
+            if (type.IsGenericParameter && (type is GenericParameter gp) && scope.ContainsKey(gp))
+                return scope[gp];
+
+            if (type is TypeDefinition td)
+                return td;
+
+            return null;
+        }
+
+        public static TypeDefinition Resolve(this TypeReference type, MethodReference scope)
+        {
+            var res = type.Resolve();
+            if (res != null) return res;
+
+            if (type.ContainsGenericParameter && scope.IsGenericInstance)
+            {
+                var pos = (type as GenericParameter).Position;
+                return (scope as IGenericInstance).GenericArguments[pos].Resolve(scope);
+            }
+
+            if (type is TypeDefinition td)
+                return td;
+
+            return null;
+        }
+
+        public static int GetWidth(this TypeReference type, Method method)
         {
             var r = type.Resolve();
+
+            if (r.CustomAttributes.Any(t => t.AttributeType.Resolve().FullName == typeof(BitWidthAttribute).FullName))
+            {
+                var w = r.CustomAttributes.First(t => t.AttributeType.Resolve().FullName == typeof(BitWidthAttribute).FullName);
+                return (Int32)w.ConstructorArguments[0].Value;
+            }
+
+            if (r == r.Module.TypeSystem.Boolean) return 1;
 
             if (r == r.Module.TypeSystem.SByte) return 8;
             if (r == r.Module.TypeSystem.Int16) return 16;
@@ -156,10 +221,20 @@ namespace CilLogic.Utilities
             if (r == r.Module.TypeSystem.UInt32) return 32;
             if (r == r.Module.TypeSystem.UInt64) return 64;
 
+            if (r.IsEnum)
+            {
+                return 64;
+            }
+            else if (r.IsValueType && r.IsClass && !r.IsPrimitive)
+                return r.Fields.Sum(f => f.GetWidth(method));
+
+            if (type.IsPort())
+                return type.GenericParameters[0].Resolve(method?.MethodRef, method?.GenericParams)?.GetWidth(method) ?? 0;
+
             throw new NotSupportedException("Type not detected");
         }
 
-        public static int GetWidth(this FieldReference field)
+        public static int GetWidth(this FieldReference field, Method method)
         {
             var r = field.Resolve();
 
@@ -169,13 +244,13 @@ namespace CilLogic.Utilities
                 return (Int32)w.ConstructorArguments[0].Value;
             }
 
-            return field.FieldType.GetWidth();
+            return field.FieldType.GetWidth(method);
         }
 
-        public static FieldInfo GetInfo(this FieldDefinition field, TypeDefinition scope)
+        public static FieldInfo GetInfo(this FieldDefinition field, TypeDefinition scope, Method method)
         {
             var lsb = 0;
-            var width = field.GetWidth();
+            var width = field.GetWidth(method);
 
             if (field.DeclaringType == scope)
             {
@@ -184,7 +259,7 @@ namespace CilLogic.Utilities
                     if (scope.Fields[i] == field)
                         return new FieldInfo { Lsb = lsb, Msb = lsb + width - 1 };
                     else
-                        lsb += scope.Fields[i].FieldType.GetWidth();
+                        lsb += scope.Fields[i].FieldType.GetWidth(method);
                 }
             }
             else

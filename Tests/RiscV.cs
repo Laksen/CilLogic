@@ -282,7 +282,7 @@ namespace CilLogic.Tests
             var curr_pc = pc;
             var npc = curr_pc + 4;
 
-            instr = ExpandCompressed(instr);
+            //instr = ExpandCompressed(instr);
 
             // Set the most likely outcome
             pc = npc;

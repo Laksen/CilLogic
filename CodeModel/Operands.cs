@@ -4,11 +4,16 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Mono.Cecil;
+using CilLogic.Utilities;
 
 namespace CilLogic.CodeModel
 {
     public class SelfOperand : Operand
     {
+        public SelfOperand(TypeDef operandType) : base(operandType)
+        {
+        }
+
         public override string ToString() { return "[SELF]"; }
     }
 
@@ -18,7 +23,7 @@ namespace CilLogic.CodeModel
 
         public override string ToString() { return $"[{Field.Name}]"; }
 
-        public FieldOperand(FieldReference field)
+        public FieldOperand(FieldReference field, Method method) : base(new CecilType<TypeDefinition>(field.FieldType.Resolve(method.MethodRef, method.GenericParams), method))
         {
             this.Field = field;
         }
@@ -28,7 +33,7 @@ namespace CilLogic.CodeModel
     {
         public int Value { get; }
 
-        public override string ToString() { return $"%{Value}"; }
+        public override string ToString() { return $"%{Value}[{OperandType.GetWidth()}]"; }
 
         public override bool Equals(object obj)
         {
@@ -40,8 +45,8 @@ namespace CilLogic.CodeModel
 
         public override int GetHashCode() { return Value; }
 
-        public ValueOperand(int value) { Value = value; }
-        public ValueOperand(Opcode instruction) : this(instruction.Result) { }
+        public ValueOperand(int value, TypeDef type) : base(type) { Value = value; }
+        public ValueOperand(Opcode instruction) : this(instruction.Result, instruction.GetResultType(instruction.Block.Method)) { }
     }
 
     public class UndefOperand : Operand
@@ -55,6 +60,8 @@ namespace CilLogic.CodeModel
         public override int GetHashCode() { return 0; }
 
         public override string ToString() { return "{Undef}"; }
+
+        public UndefOperand() : base(null) { }
     }
 
     internal class PhiOperand : Operand
@@ -74,7 +81,7 @@ namespace CilLogic.CodeModel
 
         public override string ToString() { return $"BB{Block.Id}@{Value}"; }
 
-        public PhiOperand(BasicBlock block, Operand value)
+        public PhiOperand(BasicBlock block, Operand value) : base(value.OperandType)
         {
             Block = block;
             Value = value;
@@ -101,13 +108,18 @@ namespace CilLogic.CodeModel
 
         public override string ToString() { return $"{Value}"; }
 
-        public ConstOperand(UInt64 value) { Value = value; Signed = true; Width = 64; }
-        public ConstOperand(int value) { Value = (UInt64)value; Signed = true; Width = 32; }
+        public ConstOperand(UInt64 value) : base(VectorType.Int64) { Value = value; Signed = true; Width = 64; }
+        public ConstOperand(int value) : base(VectorType.Int64) { Value = (UInt64)value; Signed = true; Width = 32; }
 
         public ConstOperand(ulong value, bool signed, int width) : this(value)
         {
             Signed = signed;
             Width = width;
+        }
+
+        public ConstOperand(UInt64 value, TypeDefinition typeDefinition, Method method) : base(new CecilType<TypeDefinition>(typeDefinition.Resolve(method.MethodRef, method.GenericParams), method))
+        {
+            Value = value; Signed = false; Width = typeDefinition.GetWidth(method);
         }
     }
 
@@ -117,7 +129,7 @@ namespace CilLogic.CodeModel
 
         public override string ToString() { return "@BB" + Instruction.Block.Id; }
 
-        public InstrOperand(Opcode instruction) { Instruction = instruction; }
+        public InstrOperand(Opcode instruction) : base(TypeDef.Void) { Instruction = instruction; }
     }
 
     public class BlockOperand : Operand
@@ -126,18 +138,18 @@ namespace CilLogic.CodeModel
 
         public override string ToString() { return "BB" + Block.Id; }
 
-        public BlockOperand(BasicBlock block) { Block = block; }
+        public BlockOperand(BasicBlock block) : base(TypeDef.Void) { Block = block; }
     }
 
     internal class MethodOperand : Operand
     {
-        public MethodDefinition Method { get; }
+        public MethodReference Method { get; }
 
         public override string ToString() { return $"[{Method.Name}]"; }
 
-        public MethodOperand(MethodDefinition method)
+        public MethodOperand(MethodReference methodRef, Method method) : base(new CecilType<MethodReference>(methodRef, method))
         {
-            this.Method = method;
+            this.Method = methodRef;
         }
     }
 
@@ -145,7 +157,7 @@ namespace CilLogic.CodeModel
     {
         public int Location { get; }
 
-        public LocOperand(int location)
+        public LocOperand(int location, TypeReference type, Method method) : base(new CecilType<TypeDefinition>(type.Resolve(method.MethodRef, method.GenericParams), method))
         {
             Location = location;
         }
@@ -153,11 +165,8 @@ namespace CilLogic.CodeModel
 
     public class TypeOperand : Operand
     {
-        public TypeDefinition TypeDef { get; }
-
-        public TypeOperand(TypeDefinition typeDef)
+        public TypeOperand(TypeReference type, Method method) : base(new CecilType<TypeDefinition>(type.Resolve(method.MethodRef, method.GenericParams), method))
         {
-            TypeDef = typeDef;
         }
     }
 }

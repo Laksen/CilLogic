@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using CilLogic.Utilities;
+using Mono.Cecil;
 
 namespace CilLogic.CodeModel.Passes
 {
@@ -18,9 +20,11 @@ namespace CilLogic.CodeModel.Passes
                 var obj = call[1] as SelfOperand;
                 var func = call[0] as MethodOperand;
 
-                if (func.Method.CustomAttributes.Any(o => o.AttributeType.Name == "OperationAttribute"))
+                var md = func.Method.Resolve();
+
+                if (md.CustomAttributes.Any(o => o.AttributeType.Name == "OperationAttribute"))
                 {
-                    var val = (Op)func.Method.CustomAttributes[0].ConstructorArguments[0].Value;
+                    var val = (Op)md.CustomAttributes[0].ConstructorArguments[0].Value;
 
                     call.Block.Replace(call, new Opcode(call.Result, val, call.Operands.Skip(1).ToArray()));
                     
@@ -29,7 +33,15 @@ namespace CilLogic.CodeModel.Passes
 
                 //if (obj == null) throw new NotSupportedException("Non-self operands are not supported");
 
-                var m = new Interpreter(func.Method, call.Operands.Skip(1).ToList()).Method;
+                Dictionary<GenericParameter, TypeDefinition> genPara = new Dictionary<GenericParameter, TypeDefinition>();
+                if (md.HasGenericParameters && func.Method.IsGenericInstance)
+                {
+                    for(int i=0; i<md.GenericParameters.Count; i++)
+                    genPara[md.GenericParameters[i]] = (func.Method as IGenericInstance).GenericArguments[i].Resolve(method.GenericParams);
+                    //var args = (func.Method as func.
+                }
+
+                var m = new Interpreter(func.Method, call.Operands.Skip(1).ToList(), genPara).Method;
 
                 CodePass.Process(m);
 

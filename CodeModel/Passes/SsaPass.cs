@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using CilLogic.Utilities;
+using Mono.Cecil;
 
 namespace CilLogic.CodeModel.Passes
 {
@@ -19,8 +20,8 @@ namespace CilLogic.CodeModel.Passes
                             var typ = (op[1] as TypeOperand);
 
                             var v = method.GetValue();
-                            op.Block.InsertBefore(new Opcode(v, Op.CreateStruct, typ), op);
-                            op.Block.Replace(op, new Opcode(0, Op.StLoc, locRef, new ValueOperand(v)));
+                            op.Block.InsertBefore(new Opcode(v, Op.Slice, typ.OperandType.GetWidth(), 0, 0, 0), op);
+                            op.Block.Replace(op, new Opcode(0, Op.StLoc, locRef, new ValueOperand(v, typ.OperandType)));
 
                             break;
                         }
@@ -42,11 +43,11 @@ namespace CilLogic.CodeModel.Passes
                                 var fref = (op[1] as FieldOperand).Field;
                                 var value = op[2];
 
-                                var tw = fref.Resolve().GetInfo(fref.DeclaringType.Resolve());
+                                var tw = fref.Resolve().GetInfo(fref.DeclaringType.Resolve(), method);
 
                                 var load = new Opcode(method.GetValue(), Op.LdLoc, locRef.Location);
-                                var insert = new Opcode(method.GetValue(), Op.Insert, new ValueOperand(load.Result), tw.Msb, tw.Lsb, value);
-                                var store = new Opcode(0, Op.StLoc, locRef.Location, new ValueOperand(insert.Result));
+                                var insert = new Opcode(method.GetValue(), Op.Insert, new ValueOperand(load.Result, new CecilType<TypeDefinition>(fref.DeclaringType.Resolve(method.GenericParams), method)), tw.Msb, tw.Lsb, value);
+                                var store = new Opcode(0, Op.StLoc, locRef.Location, new ValueOperand(insert.Result, new CecilType<TypeDefinition>(fref.DeclaringType.Resolve(method.GenericParams), method)));
 
                                 op.Block.InsertBefore(load, op);
                                 op.Block.InsertBefore(insert, op);
@@ -83,7 +84,7 @@ namespace CilLogic.CodeModel.Passes
                     if (instr.Op == Op.LdLoc)
                     {
                         var loc = (instr[0] as ConstOperand).Value;
-                        b.Replace(instr, new Opcode(instr.Result, Op.Mov, new ValueOperand(locals[loc])));
+                        b.Replace(instr, new Opcode(instr.Result, Op.Mov, new ValueOperand(locals[loc], new CecilType<TypeDefinition>(method.LocalTypes[loc], method))));
                     }
                     else if (instr.Op == Op.StLoc)
                     {
@@ -100,8 +101,12 @@ namespace CilLogic.CodeModel.Passes
             }
 
             // Add initialization
-            foreach (var locs in entryLocals[method.Entry])
-                method.Entry.Prepend(new Opcode(locs, Op.Mov, 0));
+            for (int i=0; i<method.Locals; i++)
+            {
+                var locs = entryLocals[method.Entry][i];
+            //foreach (var locs in entryLocals[method.Entry])
+                method.Entry.Prepend(new Opcode(locs, Op.Mov, new ConstOperand(0, method.LocalTypes[i], method)));
+            }
 
             // Add phi nodes
             var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.SelectMany(o => o.Operands).OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
@@ -110,7 +115,7 @@ namespace CilLogic.CodeModel.Passes
                 var prevBlocks = nextBlocks.Where(kvp => kvp.Value.Contains(block)).Select(x => x.Key).ToList();
 
                 for (int i = 0; i < method.Locals; i++)
-                    block.Prepend(new Opcode(entryLocals[block][i], Op.Phi, prevBlocks.Select(pb => new PhiOperand(pb, new ValueOperand(exitLocals[pb][i]))).ToArray()));
+                    block.Prepend(new Opcode(entryLocals[block][i], Op.Phi, prevBlocks.Select(pb => new PhiOperand(pb, new ValueOperand(exitLocals[pb][i], new CecilType<TypeDefinition>(method.LocalTypes[i], method)))).ToArray()));
             }
         }
     }

@@ -19,6 +19,8 @@ namespace CilLogic.CodeModel
 
         private class InstructionInfo
         {
+            public Method Method { get; set; }
+
             public HashSet<Instruction> Priors = new HashSet<Instruction>();
             public HashSet<Instruction> Nexts = new HashSet<Instruction>();
 
@@ -58,7 +60,7 @@ namespace CilLogic.CodeModel
         private Dictionary<Instruction, T> Analyze<T>(List<Instruction> instructions, bool hasResult) where T : InstructionInfo, new()
         {
             var res = new Dictionary<Instruction, T>();
-            foreach (var r in instructions) res[r] = new T();
+            foreach (var r in instructions) res[r] = new T() { Method = Method};
 
             var toVisit = new Queue<Tuple<int, Instruction>>();
             var visited = new HashSet<int>();
@@ -239,7 +241,7 @@ namespace CilLogic.CodeModel
 
             private void Push(Opcode i)
             {
-                stack.Push(new ValueOperand(i.Result));
+                stack.Push(new ValueOperand(i.Result, i.GetResultType(Method)));
             }
 
             private Opcode Observe(Opcode o)
@@ -254,9 +256,9 @@ namespace CilLogic.CodeModel
                 Push(Observe(new Opcode(Method.GetValue(), Op.Conv, Pop(), sign, width * 8)));
             }
 
-            public void Execute(Instruction ins, bool hasResult, Dictionary<Instruction, Opcode> jumpPoints, Method Method, List<Operand> arguments)
+            public void Execute(Instruction ins, bool hasResult, Dictionary<Instruction, Opcode> jumpPoints, Method method, List<Operand> arguments, IList<VariableDefinition> variables)
             {
-                stack = new Stack<Operand>(PreCollectStack.Select(x => new ValueOperand(x)));
+                stack = new Stack<Operand>(PreCollectStack.Select((x, i) => new ValueOperand(x, TypeDef.Unknown)));
 
                 switch (ins.OpCode.Code)
                 {
@@ -280,35 +282,35 @@ namespace CilLogic.CodeModel
                     case Code.Dup: stack.Push(stack.Peek()); break;
                     case Code.Pop: Pop(); break;
 
-                    case Code.Beq_S: case Code.Beq: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Ceq, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Bne_Un_S: case Code.Bne_Un: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Ceq, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Beq_S: case Code.Beq: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Ceq, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bne_Un_S: case Code.Bne_Un: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Ceq, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Bge: case Code.Bge_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Bge_Un: case Code.Bge_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bge: case Code.Bge_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bge_Un: case Code.Bge_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Cltu, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Ble: case Code.Ble_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Ble_Un: case Code.Ble_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Ble: case Code.Ble_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Ble_Un: case Code.Ble_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Cltu, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Bgt: case Code.Bgt_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Bgt_Un: case Code.Bgt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bgt: case Code.Bgt_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Clt, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Bgt_Un: case Code.Bgt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Cltu, v2, v1))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Blt: case Code.Blt_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Clt, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
-                    case Code.Blt_Un: case Code.Blt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(Method.GetValue(), Op.Cltu, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Blt: case Code.Blt_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Clt, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
+                    case Code.Blt_Un: case Code.Blt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Cltu, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Ceq: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Ceq, a, b))); break; }
-                    case Code.Cgt: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Clt, b, a))); break; }
-                    case Code.Cgt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Cltu, b, a))); break; }
-                    case Code.Clt: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Clt, b, a))); break; }
-                    case Code.Clt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Cltu, b, a))); break; }
+                    case Code.Ceq: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Ceq, a, b))); break; }
+                    case Code.Cgt: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Clt, b, a))); break; }
+                    case Code.Cgt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Cltu, b, a))); break; }
+                    case Code.Clt: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Clt, b, a))); break; }
+                    case Code.Clt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Cltu, b, a))); break; }
 
-                    case Code.Add: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Add, a, b))); break; }
-                    case Code.Sub: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Sub, a, b))); break; }
-                    case Code.And: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.And, a, b))); break; }
-                    case Code.Or: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Or, a, b))); break; }
-                    case Code.Xor: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Xor, a, b))); break; }
-                    case Code.Shl: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Lsl, a, b))); break; }
-                    case Code.Shr: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Asr, a, b))); break; }
-                    case Code.Shr_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(Method.GetValue(), Op.Lsr, a, b))); break; }
+                    case Code.Add: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Add, a, b))); break; }
+                    case Code.Sub: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Sub, a, b))); break; }
+                    case Code.And: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.And, a, b))); break; }
+                    case Code.Or: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Or, a, b))); break; }
+                    case Code.Xor: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Xor, a, b))); break; }
+                    case Code.Shl: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Lsl, a, b))); break; }
+                    case Code.Shr: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Asr, a, b))); break; }
+                    case Code.Shr_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Lsr, a, b))); break; }
 
                     case Code.Ldarg_0: stack.Push(arguments[0]); break;
                     case Code.Ldarg_1: stack.Push(arguments[1]); break;
@@ -342,7 +344,7 @@ namespace CilLogic.CodeModel
                             var index = Pop();
                             var arrRef = Pop();
 
-                            Push(Observe(new Opcode(Method.GetValue(), Op.LdArray, arrRef, index)));
+                            Push(Observe(new Opcode(method.GetValue(), Op.LdArray, arrRef, index)));
                             break;
                         }
 
@@ -361,66 +363,76 @@ namespace CilLogic.CodeModel
                             break;
                         }
 
-                    case Code.Conv_I: Convert(Method, 1, 8); break;
-                    case Code.Conv_I1: Convert(Method, 1, 1); break;
-                    case Code.Conv_I2: Convert(Method, 1, 2); break;
-                    case Code.Conv_I4: Convert(Method, 1, 4); break;
-                    case Code.Conv_I8: Convert(Method, 1, 8); break;
+                    case Code.Conv_I: Convert(method, 1, 8); break;
+                    case Code.Conv_I1: Convert(method, 1, 1); break;
+                    case Code.Conv_I2: Convert(method, 1, 2); break;
+                    case Code.Conv_I4: Convert(method, 1, 4); break;
+                    case Code.Conv_I8: Convert(method, 1, 8); break;
 
-                    case Code.Conv_Ovf_I: Convert(Method, 1, 8); break;
-                    case Code.Conv_Ovf_I1: Convert(Method, 1, 1); break;
-                    case Code.Conv_Ovf_I2: Convert(Method, 1, 2); break;
-                    case Code.Conv_Ovf_I4: Convert(Method, 1, 4); break;
-                    case Code.Conv_Ovf_I8: Convert(Method, 1, 8); break;
+                    case Code.Conv_Ovf_I: Convert(method, 1, 8); break;
+                    case Code.Conv_Ovf_I1: Convert(method, 1, 1); break;
+                    case Code.Conv_Ovf_I2: Convert(method, 1, 2); break;
+                    case Code.Conv_Ovf_I4: Convert(method, 1, 4); break;
+                    case Code.Conv_Ovf_I8: Convert(method, 1, 8); break;
 
-                    case Code.Conv_Ovf_I_Un: Convert(Method, 1, 8); break;
-                    case Code.Conv_Ovf_I1_Un: Convert(Method, 1, 1); break;
-                    case Code.Conv_Ovf_I2_Un: Convert(Method, 1, 2); break;
-                    case Code.Conv_Ovf_I4_Un: Convert(Method, 1, 4); break;
-                    case Code.Conv_Ovf_I8_Un: Convert(Method, 1, 8); break;
+                    case Code.Conv_Ovf_I_Un: Convert(method, 1, 8); break;
+                    case Code.Conv_Ovf_I1_Un: Convert(method, 1, 1); break;
+                    case Code.Conv_Ovf_I2_Un: Convert(method, 1, 2); break;
+                    case Code.Conv_Ovf_I4_Un: Convert(method, 1, 4); break;
+                    case Code.Conv_Ovf_I8_Un: Convert(method, 1, 8); break;
 
-                    case Code.Conv_U: Convert(Method, 0, 8); break;
-                    case Code.Conv_U1: Convert(Method, 0, 1); break;
-                    case Code.Conv_U2: Convert(Method, 0, 2); break;
-                    case Code.Conv_U4: Convert(Method, 0, 4); break;
-                    case Code.Conv_U8: Convert(Method, 0, 8); break;
+                    case Code.Conv_U: Convert(method, 0, 8); break;
+                    case Code.Conv_U1: Convert(method, 0, 1); break;
+                    case Code.Conv_U2: Convert(method, 0, 2); break;
+                    case Code.Conv_U4: Convert(method, 0, 4); break;
+                    case Code.Conv_U8: Convert(method, 0, 8); break;
 
-                    case Code.Conv_Ovf_U: Convert(Method, 0, 8); break;
-                    case Code.Conv_Ovf_U1: Convert(Method, 0, 1); break;
-                    case Code.Conv_Ovf_U2: Convert(Method, 0, 2); break;
-                    case Code.Conv_Ovf_U4: Convert(Method, 0, 4); break;
-                    case Code.Conv_Ovf_U8: Convert(Method, 0, 8); break;
+                    case Code.Conv_Ovf_U: Convert(method, 0, 8); break;
+                    case Code.Conv_Ovf_U1: Convert(method, 0, 1); break;
+                    case Code.Conv_Ovf_U2: Convert(method, 0, 2); break;
+                    case Code.Conv_Ovf_U4: Convert(method, 0, 4); break;
+                    case Code.Conv_Ovf_U8: Convert(method, 0, 8); break;
 
-                    case Code.Conv_Ovf_U_Un: Convert(Method, 0, 8); break;
-                    case Code.Conv_Ovf_U1_Un: Convert(Method, 0, 1); break;
-                    case Code.Conv_Ovf_U2_Un: Convert(Method, 0, 2); break;
-                    case Code.Conv_Ovf_U4_Un: Convert(Method, 0, 4); break;
-                    case Code.Conv_Ovf_U8_Un: Convert(Method, 0, 8); break;
+                    case Code.Conv_Ovf_U_Un: Convert(method, 0, 8); break;
+                    case Code.Conv_Ovf_U1_Un: Convert(method, 0, 1); break;
+                    case Code.Conv_Ovf_U2_Un: Convert(method, 0, 2); break;
+                    case Code.Conv_Ovf_U4_Un: Convert(method, 0, 4); break;
+                    case Code.Conv_Ovf_U8_Un: Convert(method, 0, 8); break;
 
                     case Code.Call:
                     case Code.Callvirt:
                         {
-                            var m = (ins.Operand as MethodReference).Resolve();
+                            var m = (ins.Operand as MethodReference);
+                            var md = m.Resolve();
 
                             var v = 0;
-                            if (m.MethodReturnType.ReturnType != m.Module.TypeSystem.Void) v = Method.GetValue();
+                            if (md.MethodReturnType.ReturnType != m.Module.TypeSystem.Void) v = method.GetValue();
 
-                            var op = Observe(new Opcode(v, Op.Call, new Operand[] { new MethodOperand(m) }.Concat(Enumerable.Range(0, m.GetArgCount()).Select(i => Pop()).ToArray().Reverse()).ToArray()));
+                            var op = Observe(new Opcode(v, Op.Call, new Operand[] { new MethodOperand(m, method) }.Concat(Enumerable.Range(0, md.GetArgCount()).Select(i => Pop()).ToArray().Reverse()).ToArray()));
 
-                            if (m.MethodReturnType.ReturnType != m.Module.TypeSystem.Void) Push(op);
+                            if (md.MethodReturnType.ReturnType != m.Module.TypeSystem.Void) Push(op);
 
                             break;
                         }
 
                     case Code.Ldloca_S:
-                    case Code.Ldloca: stack.Push(new LocOperand((ins.Operand as VariableReference).Index)); break;
+                    case Code.Ldloca:
+                        {
+                            var v = (ins.Operand as VariableReference);
+                            stack.Push(new LocOperand(v.Index, v.VariableType, method)); break;
+                        }
 
-                    case Code.Ldloc_0: Push(Observe(new Opcode(Method.GetValue(), Op.LdLoc, 0))); break;
-                    case Code.Ldloc_1: Push(Observe(new Opcode(Method.GetValue(), Op.LdLoc, 1))); break;
-                    case Code.Ldloc_2: Push(Observe(new Opcode(Method.GetValue(), Op.LdLoc, 2))); break;
-                    case Code.Ldloc_3: Push(Observe(new Opcode(Method.GetValue(), Op.LdLoc, 3))); break;
+                    case Code.Ldloc_0: Push(Observe(new Opcode(method.GetValue(), Op.LdLoc, 0, new TypeOperand(variables[0].VariableType, method)))); break;
+                    case Code.Ldloc_1: Push(Observe(new Opcode(method.GetValue(), Op.LdLoc, 1, new TypeOperand(variables[1].VariableType, method)))); break;
+                    case Code.Ldloc_2: Push(Observe(new Opcode(method.GetValue(), Op.LdLoc, 2, new TypeOperand(variables[2].VariableType, method)))); break;
+                    case Code.Ldloc_3: Push(Observe(new Opcode(method.GetValue(), Op.LdLoc, 3, new TypeOperand(variables[3].VariableType, method)))); break;
                     case Code.Ldloc_S:
-                    case Code.Ldloc: Push(Observe(new Opcode(Method.GetValue(), Op.LdLoc, (ins.Operand as VariableReference).Index))); break;
+                    case Code.Ldloc:
+                        {
+                            var v = ins.Operand as VariableReference;
+                            Push(Observe(new Opcode(method.GetValue(), Op.LdLoc, v.Index, new TypeOperand(v.VariableType, method))));
+                            break;
+                        }
 
                     case Code.Stloc_0: Observe(new Opcode(0, Op.StLoc, 0, Pop())); break;
                     case Code.Stloc_1: Observe(new Opcode(0, Op.StLoc, 1, Pop())); break;
@@ -431,23 +443,23 @@ namespace CilLogic.CodeModel
 
                     case Code.Ldfld:
                         {
-                            Push(Observe(new Opcode(Method.GetValue(), Op.LdFld, Pop(), new FieldOperand((FieldReference)ins.Operand))));
+                            Push(Observe(new Opcode(method.GetValue(), Op.LdFld, Pop(), new FieldOperand((FieldReference)ins.Operand, method))));
                             break;
                         }
                     case Code.Stfld:
                         {
                             var value = Pop();
                             var obj = Pop();
-                            Observe(new Opcode(Method.GetValue(), Op.StFld, obj, new FieldOperand((FieldReference)ins.Operand), value));
+                            Observe(new Opcode(method.GetValue(), Op.StFld, obj, new FieldOperand((FieldReference)ins.Operand, method), value));
                             break;
                         }
 
                     case Code.Initobj:
                         {
-                            var typ = (ins.Operand as TypeReference).Resolve();
+                            var typ = (ins.Operand as TypeReference);
 
                             var addr = Pop();
-                            Observe(new Opcode(0, Op.InitObj, addr, new TypeOperand(typ)));
+                            Observe(new Opcode(0, Op.InitObj, addr, new TypeOperand(typ, method)));
                             break;
                         }
 
@@ -460,7 +472,7 @@ namespace CilLogic.CodeModel
             }
         }
 
-        private void Execute(bool hasThis, bool hasResult, List<Instruction> instructions, List<Operand> arguments)
+        private void Execute(bool hasThis, bool hasResult, List<Instruction> instructions, List<Operand> arguments, IList<VariableDefinition> variables)
         {
             // First insert jump targets
             var block = Method.Entry;
@@ -475,7 +487,7 @@ namespace CilLogic.CodeModel
             // Execute each instruction
             var jumpPoints = info.ToDictionary(x => x.Key, x => x.Value.Block.Instructions.First());
             foreach (var i in info)
-                i.Value.Execute(i.Key, hasResult, jumpPoints, Method, arguments);
+                i.Value.Execute(i.Key, hasResult, jumpPoints, Method, arguments, variables);
 
             // Add optional branches
             foreach (var i in info)
@@ -485,7 +497,7 @@ namespace CilLogic.CodeModel
             // Update pre stacks
             foreach (var i in info)
                 foreach (var next in i.Value.Nexts)
-                    info[next].PreStacks[i.Key] = i.Value.OutStack.Select(x => new ValueOperand(x)).ToArray();
+                    info[next].PreStacks[i.Key] = i.Value.OutStack.Select((x, i2) => new ValueOperand(x, TypeDef.Unknown)).ToArray();
 
             // Insert phi nodes
             var blockSelector = info.ToDictionary(x => x.Key, x => x.Value.Block);
@@ -497,18 +509,20 @@ namespace CilLogic.CodeModel
             Method.Fragment();
         }
 
-        public Interpreter(MethodDefinition method, List<Operand> arguments = default(List<Operand>))
+        public Interpreter(MethodReference method, List<Operand> arguments = default(List<Operand>), Dictionary<GenericParameter, TypeDefinition> genArgs = default(Dictionary<GenericParameter, TypeDefinition>))
         {
+            var md = method.Resolve();
+
+            Method = new Method(md, method, genArgs);
+
             if (arguments == null)
             {
                 arguments = new List<Operand>();
                 if (method.HasThis)
-                    arguments.Add(new SelfOperand());
+                    arguments.Add(new SelfOperand(new CecilType<TypeDefinition>(md.DeclaringType, Method)));
             }
 
-            Method = new Method(method.Body.Variables.Count);
-
-            Execute(method.HasThis, method.MethodReturnType.ReturnType != method.Module.TypeSystem.Void, method.Body.Instructions.ToList(), arguments);
+            Execute(method.HasThis, method.MethodReturnType.ReturnType != method.Module.TypeSystem.Void, md.Body.Instructions.ToList(), arguments, md.Body.Variables);
         }
     }
 }

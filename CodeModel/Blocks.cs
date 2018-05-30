@@ -4,11 +4,21 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Mono.Cecil;
+using CilLogic.Utilities;
 
 namespace CilLogic.CodeModel
 {
     public class Operand
     {
+        public TypeDef OperandType { get; set; }
+
+        public Operand(TypeDef operandType)
+        {
+            if (operandType == null)
+                throw new Exception("s");
+            OperandType = operandType;
+        }
+
         public static implicit operator Operand(UInt64 value) { return new ConstOperand(value); }
         public static implicit operator Operand(int value) { return new ConstOperand(value); }
 
@@ -56,6 +66,61 @@ namespace CilLogic.CodeModel
 
         public Opcode Next { get { return Block.GetNext(this); } }
         public Opcode Previous { get { return Block.GetPrev(this); } }
+
+        public TypeDef GetResultType(Method method)
+        {
+            switch (Op)
+            {
+                case Op.Call: return new CecilType<TypeDefinition>((this[0] as MethodOperand).Method.MethodReturnType.ReturnType.Resolve((this[0] as MethodOperand).Method, Block.Method.GenericParams), method);
+                case Op.LdFld: return new CecilType<TypeDefinition>((this[1] as FieldOperand).Field.FieldType.Resolve(Block.Method.GenericParams), method);
+                case Op.LdLoc: return (this[1] as TypeOperand).OperandType;
+
+                case Op.ReadPort: return this[0].OperandType;
+
+                case Op.LdArray:
+                    if (this[0] is FieldOperand)
+                        return new CecilType<TypeDefinition>((this[0] as FieldOperand).Field.FieldType.GetElementType().Resolve(Block.Method.GenericParams), method);
+                    else
+                        return TypeDef.Unknown;
+
+                case Op.ReadValid:
+                case Op.ReadReady:
+
+                case Op.Ceq:
+                case Op.Clt:
+                case Op.Cltu: return VectorType.UInt1;
+
+                case Op.Conv: return new VectorType((int)(this[2] as ConstOperand).Value, (this[1] as ConstOperand).Value != 0);
+
+                case Op.Slice:
+                    {
+                        var msb = (int)(this[1] as ConstOperand).Value;
+                        var lsb = (int)(this[2] as ConstOperand).Value;
+                        var shift = (int)(this[3] as ConstOperand).Value;
+                        var signed = (int)(this[4] as ConstOperand).Value;
+
+                        return new VectorType(msb - lsb + 1 + shift, signed != 0);
+                    }
+
+                case Op.Phi: return this[0].OperandType;
+                case Op.Mux: return this[1].OperandType;
+
+                case Op.Asr:
+                case Op.Lsr:
+                case Op.Lsl:
+                case Op.And:
+                case Op.Or:
+                case Op.Xor:
+                case Op.Add:
+                case Op.Sub: return this[0].OperandType;
+
+                case Op.StArray:
+                case Op.StFld: return TypeDef.Void;
+
+                default:
+                    throw new NotSupportedException($"Invalid Op during type inferrence {Op}.");
+            }
+        }
 
         public bool IsCondJump
         {
@@ -114,7 +179,8 @@ namespace CilLogic.CodeModel
 
         public override string ToString()
         {
-            return "  " + (Result != 0 ? "%" + Result + " = " : "") + Op + " " + string.Join(", ", Operands);
+            return "  " + (Result != 0 ? $"%{Result}[{GetResultType(Block.Method).GetWidth()}] = " : "") + Op + " " + string.Join(", ", Operands);
+            //return "  " + (Result != 0 ? $"%{Result} = " : "") + Op + " " + string.Join(", ", Operands);
         }
 
         internal bool IsTerminating()
@@ -246,10 +312,12 @@ namespace CilLogic.CodeModel
 
     public class Method
     {
+        public MethodReference MethodRef { get; }
+        public Dictionary<GenericParameter, TypeDefinition> GenericParams { get; }
         public List<BasicBlock> Blocks { get; }
         public BasicBlock Entry { get; set; }
         public int Locals { get; }
-
+        public TypeDefinition[] LocalTypes { get; }
         public bool IsSSA { get; internal set; }
 
         private static int ValueCounter = 2;
@@ -329,16 +397,20 @@ namespace CilLogic.CodeModel
             foreach (var instr in Blocks.SelectMany(b => b.Instructions).ToList())
             {
                 for (int i = 0; i < instr.Operands.Count; i++)
-                     if ((instr.Operands[i] is PhiOperand po) && po.Block == target)
+                    if ((instr.Operands[i] is PhiOperand po) && po.Block == target)
                         instr.Operands[i] = new PhiOperand(newTarget, po.Value);
             }
         }
 
-        public Method(int locals)
+        public Method(MethodDefinition methodDef, MethodReference methodRef, Dictionary<GenericParameter, TypeDefinition> generics)
         {
+            MethodRef = methodRef;
+            GenericParams = generics;
+
             Blocks = new List<BasicBlock>();
             Entry = GetBlock();
-            Locals = locals;
+            Locals = methodDef.Body.Variables.Count;
+            LocalTypes = methodDef.Body.Variables.Select(x => x.VariableType.Resolve(generics)).ToArray();
         }
     }
 }

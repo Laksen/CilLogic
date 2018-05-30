@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -28,6 +29,8 @@ namespace CilLogic
 
         static void Main(string[] args)
         {
+            var sw = Stopwatch.StartNew();
+            
             // Resolve the type
             var asm = AssemblyDefinition.ReadAssembly(args[0]);
             var type = asm.FindType(args[1]);
@@ -51,6 +54,8 @@ namespace CilLogic
 
             foreach (var s in CodePass.PassTime.OrderByDescending(o => o.Value))
                 Console.WriteLine($"{s.Key}: {s.Value}");
+
+            Console.WriteLine("Total time: {0}", sw.Elapsed.TotalSeconds);
         }
     }
 }
