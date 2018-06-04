@@ -6,7 +6,7 @@ namespace CilLogic.CodeModel
     public class TypeDef
     {
         public static TypeDef Void = new TypeDef();
-        public static TypeDef Unknown = new TypeDef();
+        public static TypeDef Unknown => new TypeDef();
 
         public virtual int GetWidth()
         {

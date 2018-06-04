@@ -33,6 +33,12 @@ namespace CilLogic.Types
         void WriteValue(T data);
     }
 
+    public interface IRequest<TAddr, TValue> : IPipe<ValueTuple<TAddr, TValue>> where TAddr : struct where TValue : struct
+    {
+        [Operation(Op.Request)]
+        TValue Request(TAddr addr);
+    }
+
     public class OperationAttribute : Attribute
     {
         public readonly Op Op;

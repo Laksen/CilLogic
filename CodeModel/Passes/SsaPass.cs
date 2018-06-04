@@ -33,6 +33,16 @@ namespace CilLogic.CodeModel.Passes
 
                                 throw new NotSupportedException("LdLoca/LdFld");
                             }
+                            else if (op[0] is ValueOperand vo)
+                            {
+                                var fref = (op[1] as FieldOperand).Field;
+
+                                var tw = fref.Resolve().GetInfo(fref.DeclaringType.Resolve(), method);
+
+                                var extract = new Opcode(op.Result, Op.Slice, vo, tw.Msb, tw.Lsb, 0, 0);
+
+                                op.Block.Replace(op, extract);
+                            }
 
                             break;
                         }
@@ -101,10 +111,10 @@ namespace CilLogic.CodeModel.Passes
             }
 
             // Add initialization
-            for (int i=0; i<method.Locals; i++)
+            for (int i = 0; i < method.Locals; i++)
             {
                 var locs = entryLocals[method.Entry][i];
-            //foreach (var locs in entryLocals[method.Entry])
+                //foreach (var locs in entryLocals[method.Entry])
                 method.Entry.Prepend(new Opcode(locs, Op.Mov, new ConstOperand(0, method.LocalTypes[i], method)));
             }
 

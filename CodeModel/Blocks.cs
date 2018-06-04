@@ -14,8 +14,7 @@ namespace CilLogic.CodeModel
 
         public Operand(TypeDef operandType)
         {
-            if (operandType == null)
-                throw new Exception("s");
+            //if (operandType == null) throw new Exception("s");
             OperandType = operandType;
         }
 
@@ -48,10 +47,10 @@ namespace CilLogic.CodeModel
         Conv,
         Phi,
         LdLocA,
-        ReadReady, WritePort,
+        Request, ReadReady, WritePort,
         ReadPort, ReadValid,
         Stall,
-        Mux,
+        Mux, InSet,
         Insert,
     }
 
@@ -75,6 +74,7 @@ namespace CilLogic.CodeModel
                 case Op.LdFld: return new CecilType<TypeDefinition>((this[1] as FieldOperand).Field.FieldType.Resolve(Block.Method.GenericParams), method);
                 case Op.LdLoc: return (this[1] as TypeOperand).OperandType;
 
+                case Op.Request:
                 case Op.ReadPort: return this[0].OperandType;
 
                 case Op.LdArray:
@@ -86,6 +86,7 @@ namespace CilLogic.CodeModel
                 case Op.ReadValid:
                 case Op.ReadReady:
 
+                case Op.InSet:
                 case Op.Ceq:
                 case Op.Clt:
                 case Op.Cltu: return VectorType.UInt1;
@@ -117,8 +118,8 @@ namespace CilLogic.CodeModel
                 case Op.StArray:
                 case Op.StFld: return TypeDef.Void;
 
-                default:
-                    throw new NotSupportedException($"Invalid Op during type inferrence {Op}.");
+                //default: throw new NotSupportedException($"Invalid Op during type inferrence {Op}.");
+                default: return TypeDef.Unknown;
             }
         }
 
@@ -167,6 +168,7 @@ namespace CilLogic.CodeModel
                 case Op.Call:
                 case Op.Return:
 
+                case Op.Request:
                 case Op.ReadPort:
                 case Op.WritePort:
                 case Op.Stall:
@@ -274,7 +276,8 @@ namespace CilLogic.CodeModel
 
         public override string ToString()
         {
-            return $"BB{Id}:\n" + string.Join(Environment.NewLine, Instructions);
+            var isEntry = Method.Entry == this ? ">" : "";
+            return $"{isEntry}BB{Id}:\n" + string.Join(Environment.NewLine, Instructions);
         }
 
         internal Opcode GetPrev(Opcode opcode)

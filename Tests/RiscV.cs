@@ -3,6 +3,116 @@ using CilLogic.Types;
 
 namespace CilLogic.Tests
 {
+    public struct CSRResult
+    {
+        public bool Ok;
+        public UInt64 OldValue;
+    }
+
+    public struct hart_state
+    {
+        public const UInt64 mvendorid = 0;
+        public const UInt64 marchid = 0;
+        public const UInt64 mimpid = 0;
+        public const UInt64 mhartid = 0;
+        public UInt64 mstatus;
+        public UInt64 misa;
+        public const UInt64 medeleg = 0;
+        public const UInt64 mideleg = 0;
+        public UInt64 mie;
+        public UInt64 mtvec;
+        public UInt64 mcounteren;
+        public UInt64 mscratch;
+        public UInt64 mepc;
+        public UInt64 mcause;
+        public UInt64 mtval;
+        public UInt64 mip;
+        public UInt64 mcycle;
+        public UInt64 minstret;
+
+        public CSRResult WriteRegister(UInt64 addr, UInt64 clearMask, UInt64 setMask)
+        {
+            UInt64 res = 0;
+
+            if ((addr & 0xFF0) == 0xF10)
+                switch (addr & 0xF)
+                {
+                    case 0x0: res = mvendorid; break;
+                    case 0x1: res = marchid; break;
+                    case 0x2: res = mimpid; break;
+                    case 0x3: res = mhartid; break;
+                }
+            else if ((addr & 0xFF0) == 0x300)
+                switch (addr & 0xF)
+                {
+                    case 0x0: res = mstatus; break;
+                    case 0x1: res = misa; break;
+                    case 0x2: res = medeleg; break;
+                    case 0x3: res = mideleg; break;
+                    case 0x4: res = mie; break;
+                    case 0x5: res = mtvec; break;
+                    case 0x6: res = mcounteren; break;
+                }
+            else if ((addr & 0xFF0) == 0x340)
+                switch (addr & 0xF)
+                {
+                    case 0x0: res = mscratch; break;
+                    case 0x1: res = mepc; break;
+                    case 0x2: res = mcause; break;
+                    case 0x3: res = mtval; break;
+                    case 0x4: res = mip; break;
+                }
+
+            var old = res;
+            res = (res & clearMask) | setMask;
+            var ok = true;
+
+            if ((addr & 0xFF0) == 0x300)
+                switch (addr & 0xF)
+                {
+                    case 0x0: mstatus = res; break;
+                    case 0x1: misa = res; break;
+                    case 0x4: mie = res; break;
+                    case 0x5: mtvec = res; break;
+                    case 0x6: mcounteren = res; break;
+                    default: ok = false; break;
+                }
+            else if ((addr & 0xFF0) == 0x340)
+                switch (addr & 0xF)
+                {
+                    case 0x0: mscratch = res; break;
+                    case 0x1: mepc = res; break;
+                    case 0x2: mcause = res; break;
+                    case 0x3: mtval = res; break;
+                    case 0x4: mip = res; break;
+                    default: ok = false; break;
+                }
+            else
+                ok = false;
+
+            return new CSRResult { Ok = ok, OldValue = old };
+        }
+    }
+
+    [BitWidth(4)]
+    public enum ErrorType
+    {
+        InstrUnaligned = 0,
+        InstrAccess = 1,
+        IllegalInstruction = 2,
+        BreakPoint = 3,
+        LoadUnaligned = 4,
+        LoadAccess = 5,
+        StoreUnaligned = 6,
+        StoreAccess = 7,
+        ECallU = 8,
+        ECallS = 9,
+        ECallM = 11,
+        InstrPageFault = 12,
+        LoadPageFault = 13,
+        StorePageFault = 15
+    }
+
     public enum Opcode
     {
         // RV32I
@@ -16,6 +126,8 @@ namespace CilLogic.Tests
         addi = 0x04,
         add = 0x0C,
         fence = 0x03,
+
+        sys = 0x1C,
 
         // RV64I
         addiw = 0x06,
@@ -34,7 +146,7 @@ namespace CilLogic.Tests
         LBU = 4,
         LHU = 5,
         LWU = 6,
-        LD = 3
+        LD = 3,
     }
 
     public enum F3_Store : UInt32
@@ -42,7 +154,7 @@ namespace CilLogic.Tests
         SB = 0,
         SH = 1,
         SW = 2,
-        SD = 3
+        SD = 3,
     }
 
     public enum F3_B : UInt32
@@ -69,19 +181,15 @@ namespace CilLogic.Tests
 
     public class RiscV : Actor
     {
-        public IInput<UInt32> Instr { get; set; }
-        public IOutput<UInt64> Jump { get; set; }
+        public IRequest<UInt64, InstrResponse> IMem { get; set; }
 
-        public IOutput<int> DataReq { get; set; }
-        public IInput<int> DataResp { get; set; }
+        public IRequest<MemRequest, MemResponse> DMem { get; set; }
 
         private UInt64[] regs;
 
         private UInt64 pc = 0;
-        private UInt64 mstatus = 0;
-        private const UInt64 misa = 1;
 
-        private int XLEN { get { return misa == 1 ? 64 : 32; } }
+        private hart_state HartState;
 
         static UInt64 E(UInt64 value, int msb, int lsb)
         {
@@ -97,14 +205,16 @@ namespace CilLogic.Tests
         static UInt64 AluOp(UInt64 a, UInt64 b, UInt64 f3, UInt64 f7, UInt64 shiftMask)
         {
             int shift_op = (int)(b & shiftMask);
+            bool hasF7bit = (f7 & 32) != 0;
+
             switch (f3 & 7)
             {
-                case 0: return (f7 == 32) ? a - b : a + b;
+                case 0: return hasF7bit ? a - b : a + b;
                 case 1: return a << shift_op;
                 case 2: return (UInt64)(((Int64)a) < ((Int64)b) ? 1 : 0);
                 case 3: return (UInt64)(a < b ? 1 : 0);
                 case 4: return a ^ b;
-                case 5: if (f7 == 32) return ((UInt64)(((Int64)a) >> shift_op)); else return (a >> shift_op);
+                case 5: if (hasF7bit) return ((UInt64)(((Int64)a) >> shift_op)); else return (a >> shift_op);
                 case 6: return a | b;
                 case 7: return a & b;
 
@@ -126,8 +236,16 @@ namespace CilLogic.Tests
             return ((f3 & 0x1) != 0) ^ res;
         }
 
-        private const UInt32 IllegalInstruction = 0;
         private const UInt32 R_SP = 14;
+
+        private static bool IsAligned(UInt64 value, int bitWidth)
+        {
+            if (bitWidth == 8) return true;
+            else if (bitWidth == 16) return (value & 1) == 0;
+            else if (bitWidth == 32) return (value & 3) == 0;
+            else if (bitWidth == 64) return (value & 7) == 0;
+            else return true;
+        }
 
         private static UInt32 OpR(Opcode op, uint Rd, uint Rs1, uint Rs2, uint f3, uint f7)
         {
@@ -214,18 +332,18 @@ namespace CilLogic.Tests
                     ((instr >> 2) & 0x1F);
                 var imm540 = uimm540;
 
-                var imm_16sp = 
+                var imm_16sp =
                     (((instr >> 12) & 0x1) << 9) |
                     (((instr >> 6) & 0x1) << 4) |
                     (((instr >> 5) & 0x1) << 6) |
                     (((instr >> 3) & 0x3) << 7) |
                     (((instr >> 2) & 0x1) << 5);
 
-                var imm17 = 
+                var imm17 =
                     (((instr >> 12) & 0x1) << 17) |
                     (((instr >> 2) & 0x1F) << 12);
-                    
-                var imm_j = 
+
+                var imm_j =
                     (((instr >> 12) & 0x1) << 11) |
                     (((instr >> 11) & 0x1) << 4) |
                     (((instr >> 9) & 0x3) << 8) |
@@ -235,7 +353,7 @@ namespace CilLogic.Tests
                     (((instr >> 3) & 0x7) << 1) |
                     (((instr >> 2) & 0x1) << 5);
 
-                var imm_b = 
+                var imm_b =
                     (((instr >> 12) & 0x1) << 8) |
                     (((instr >> 10) & 0x3) << 3) |
                     (((instr >> 5) & 0x3) << 6) |
@@ -247,8 +365,8 @@ namespace CilLogic.Tests
                     case 0: return OpI(Opcode.addi, rd1_full, rd1_full, uimm540, (uint)F3_Alu.Add); // ADDI
                     case 1: return OpI(Opcode.addiw, rd1_full, rd1_full, imm540, (uint)F3_Alu.Add); // ADDIW
                     case 2: return OpI(Opcode.addi, rd1_full, 0, imm540, (uint)F3_Alu.Add); // LI
-                    case 3: 
-                        if(rd1_full == 2)
+                    case 3:
+                        if (rd1_full == 2)
                             return OpI(Opcode.addi, 2, 2, imm_16sp, (uint)F3_Alu.Add); // ADDI16SP
                         else
                             return OpI(Opcode.addi, rd1_full, 0, imm17, (uint)F3_Alu.Add); // LUI
@@ -278,9 +396,34 @@ namespace CilLogic.Tests
 
         public override void Execute()
         {
-            var instr = Instr.Read(this);
             var curr_pc = pc;
+
+            var state = HartState;
+
+            var errorCause = ErrorType.InstrUnaligned;
+            var fetchError = true;
+
+            UInt32 instr;
+
+            if (IsAligned(curr_pc, 32))
+            {
+                var instrResp = IMem.Request(curr_pc);
+                switch (instrResp.Status)
+                {
+                    case MemStatus.BusError:
+                    case MemStatus.DeviceError: errorCause = ErrorType.InstrAccess; break;
+                    case MemStatus.PrivilegeError: errorCause = ErrorType.InstrPageFault; break;
+                    default: fetchError = false; break;
+                }
+
+                instr = fetchError ? 0 : instrResp.Instruction;
+            }
+            else
+                instr = 0;
+
             var npc = curr_pc + 4;
+            var xlen = E(state.misa, 63, 62) == 2 ? 64 : 32;
+            var is64 = xlen == 64;
 
             //instr = ExpandCompressed(instr);
 
@@ -295,41 +438,105 @@ namespace CilLogic.Tests
             var f3 = E(instr, 14, 12);
             var f7 = E(instr, 31, 25);
 
-            var imm = (UInt64)0;
+            var immI = SignExtend(E(instr, 31, 20), 11);
+            var immS = SignExtend(
+                (E(instr, 31, 25) << 5) |
+                E(instr, 11, 7),
+                11
+            );
+            var immB = SignExtend(
+                E(instr, 31, 31) << 12 |
+                E(instr, 7, 7) << 11 |
+                E(instr, 30, 25) << 5 |
+                E(instr, 11, 8) << 1,
+                12
+            );
+            var immU = E(instr, 31, 12) << 12;
+            var immJ = SignExtend(
+                E(instr, 31, 31) << 20 |
+                E(instr, 19, 12) << 12 |
+                E(instr, 20, 20) << 11 |
+                E(instr, 30, 21) << 1,
+                20
+            );
 
-            var status = mstatus;
             var vrs1 = regs[rs1];
             var vrs2 = regs[rs2];
 
             var isR = (opcode == Opcode.add) || (opcode == Opcode.addw);
-            var isI = (opcode == Opcode.addi) || (opcode == Opcode.addiw);
+            var isI = (opcode == Opcode.addi) || (opcode == Opcode.addiw) || (opcode == Opcode.ld) || (opcode == Opcode.sys) || (opcode == Opcode.jalr);
+            var isS = (opcode == Opcode.sd);
+            var isB = (opcode == Opcode.beq);
+            var isU = (opcode == Opcode.lui) || (opcode == Opcode.auipc);
+            var isJ = (opcode == Opcode.jal);
+
+            var imm =
+                isI ? immI :
+                isS ? immS :
+                isB ? immB :
+                isU ? immU :
+                isJ ? immJ :
+                0;
 
             var isW = (opcode == Opcode.addw) || (opcode == Opcode.addiw);
 
-            var op2   = isR ? vrs2 : imm;
+            var op2 = isR ? vrs2 : imm;
             var aluf7 = isR ? f7 : 0;
             var aluf3 = isR || isI ? f3 : 0;
 
             // Execute
             UInt64 result = AluOp(vrs1, op2, aluf3, aluf7, (UInt64)(isW ? 0x1F : 0x3F));
 
+            var f7_w = (E(f7, 4, 0) == 0) && (E(f7, 6, 6) == 0);
+            var f7_n = E(f7, 5, 5) == 0;
+
+            var add_check = ((f3 == 0) || (f3 == 5)) ? false : f7_n;
+
+            var pc_imm =
+                opcode == Opcode.jalr ? result :
+                imm;
+            var calc_pc = curr_pc + pc_imm;
+
             switch (opcode)
             {
                 case Opcode.add:
-                case Opcode.addi: break;
+                    if (!f7_w || add_check)
+                    {
+                        errorCause = ErrorType.IllegalInstruction;
+                        goto default;
+                    }
+                    break;
+                case Opcode.addi:
+                    if (add_check)
+                    {
+                        errorCause = ErrorType.IllegalInstruction;
+                        goto default;
+                    }
+                    break;
 
                 case Opcode.addw:
+                    if (!f7_w || add_check)
+                    {
+                        errorCause = ErrorType.IllegalInstruction;
+                        goto default;
+                    }
+                    else
+                        goto case Opcode.addiw;
                 case Opcode.addiw:
+                    if (add_check)
+                    {
+                        errorCause = ErrorType.IllegalInstruction;
+                        goto default;
+                    }
                     result = SignExtend(result, 31);
                     break;
 
                 case Opcode.lui: result = imm; break;
-                case Opcode.auipc: result = curr_pc + imm; break;
+                case Opcode.auipc: result = calc_pc; break;
+
                 case Opcode.jal:
                 case Opcode.jalr:
                     {
-                        var calc_pc = curr_pc + (opcode == Opcode.jal ? imm : result);
-                        Jump.Write(calc_pc, this);
                         result = npc;
                         pc = calc_pc;
                         break;
@@ -338,22 +545,128 @@ namespace CilLogic.Tests
                 case Opcode.beq:
                     {
                         if (Cond(f3, vrs1, vrs2))
-                        {
-                            var calc_pc = curr_pc + imm;
-                            Jump.Write(calc_pc, this);
                             pc = calc_pc;
-                        }
+
                         rd = 0;
                         break;
                     }
 
                 case Opcode.ld:
                     {
+                        MemWidth w = MemWidth.B;
+                        UInt64 mask = 0;
+                        int msb = 0;
+                        UInt64 addrMask = 0;
+                        bool signed = false;
+                        bool fail = false;
+
+                        switch ((F3_Load)f3)
+                        {
+                            case F3_Load.LBU:
+                            case F3_Load.LB: msb = 7; mask = 0xFF; w = MemWidth.B; break;
+                            case F3_Load.LHU:
+                            case F3_Load.LH: addrMask = 1; msb = 15; mask = 0xFFFF; w = MemWidth.H; break;
+                            case F3_Load.LWU:
+                            case F3_Load.LW: addrMask = 3; msb = 31; mask = 0xFFFF_FFFF; w = MemWidth.W; break;
+                            case F3_Load.LD: addrMask = 7; msb = 63; mask = ~((UInt64)0); w = MemWidth.D; break;
+                            default: fail = true; break;
+                        }
+
+                        switch ((F3_Load)f3)
+                        {
+                            case F3_Load.LB:
+                            case F3_Load.LH:
+                            case F3_Load.LW: signed = true; break;
+                        }
+
+                        if (fail)
+                        {
+                            errorCause = ErrorType.IllegalInstruction;
+                            goto default;
+                        }
+                        else if ((result & addrMask) != 0)
+                        {
+                            errorCause = ErrorType.LoadUnaligned;
+                            goto default;
+                        }
+
+                        var resp = DMem.Request(new MemRequest
+                        {
+                            Address = result,
+                            IsWrite = false,
+                            Width = w,
+                            WriteValue = 0
+                        });
+
+                        if (resp.Status != MemStatus.Ok)
+                        {
+                            switch (resp.Status)
+                            {
+                                case MemStatus.BusError:
+                                case MemStatus.DeviceError: errorCause = ErrorType.LoadAccess; break;
+                                case MemStatus.PrivilegeError: errorCause = ErrorType.LoadPageFault; break;
+                            }
+
+                            goto default;
+                        }
+
+                        result = resp.ReadValue;
+
+                        if (signed)
+                        {
+                            var signMask = SignExtend(result >> msb, 0);
+                            result = (result & mask) | (signMask & ~mask);
+                        }
+
                         break;
                     }
 
                 case Opcode.sd:
                     {
+                        MemWidth w = MemWidth.B;
+                        bool fail = false;
+                        UInt64 addrMask = 0;
+
+                        switch ((F3_Store)f3)
+                        {
+                            case F3_Store.SB: w = MemWidth.B; break;
+                            case F3_Store.SH: addrMask = 1; w = MemWidth.H; break;
+                            case F3_Store.SW: addrMask = 3; w = MemWidth.W; break;
+                            case F3_Store.SD: addrMask = 7; w = MemWidth.D; break;
+                            default: fail = true; break;
+                        }
+
+                        if (fail)
+                        {
+                            errorCause = ErrorType.IllegalInstruction;
+                            goto default;
+                        }
+                        else if ((result & addrMask) != 0)
+                        {
+                            errorCause = ErrorType.LoadUnaligned;
+                            goto default;
+                        }
+
+                        var resp = DMem.Request(new MemRequest
+                        {
+                            Address = result,
+                            IsWrite = true,
+                            Width = w,
+                            WriteValue = vrs2
+                        });
+
+                        if (resp.Status != MemStatus.Ok)
+                        {
+                            switch (resp.Status)
+                            {
+                                case MemStatus.BusError:
+                                case MemStatus.DeviceError: errorCause = ErrorType.StoreAccess; break;
+                                case MemStatus.PrivilegeError: errorCause = ErrorType.StorePageFault; break;
+                            }
+
+                            goto default;
+                        }
+
                         rd = 0;
                         break;
                     }
@@ -361,6 +674,18 @@ namespace CilLogic.Tests
                 case Opcode.fence:
                     {
                         // NOP
+                        rd = 0;
+                        break;
+                    }
+
+                case Opcode.sys:
+                    {
+                        break;
+                    }
+
+                default:
+                    {
+                        // Failed :(
                         rd = 0;
                         break;
                     }
@@ -373,5 +698,43 @@ namespace CilLogic.Tests
         {
             regs = new UInt64[32];
         }
+    }
+
+    public struct MemRequest
+    {
+        public UInt64 Address;
+        public MemWidth Width;
+        public UInt64 WriteValue;
+        public bool IsWrite;
+    }
+
+    public struct MemResponse
+    {
+        public UInt64 ReadValue;
+        public MemStatus Status;
+    }
+
+    public struct InstrResponse
+    {
+        public UInt32 Instruction;
+        public MemStatus Status;
+    }
+
+    [BitWidth(2)]
+    public enum MemStatus
+    {
+        Ok,
+        DeviceError,
+        BusError,
+        PrivilegeError
+    }
+
+    [BitWidth(2)]
+    public enum MemWidth
+    {
+        B,
+        H,
+        W,
+        D
     }
 }

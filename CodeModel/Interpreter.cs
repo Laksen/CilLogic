@@ -303,6 +303,8 @@ namespace CilLogic.CodeModel
                     case Code.Clt: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Clt, b, a))); break; }
                     case Code.Clt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Cltu, b, a))); break; }
 
+                    case Code.Not: { var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Xor, a, -1))); break; }
+
                     case Code.Add: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Add, a, b))); break; }
                     case Code.Sub: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Sub, a, b))); break; }
                     case Code.And: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.And, a, b))); break; }
@@ -321,6 +323,7 @@ namespace CilLogic.CodeModel
 
                     case Code.Ldc_I4_S: stack.Push((int)(sbyte)ins.Operand); break;
                     case Code.Ldc_I4: stack.Push((int)ins.Operand); break;
+                    case Code.Ldc_I4_M1: stack.Push(-1); break;
                     case Code.Ldc_I4_0: stack.Push(0); break;
                     case Code.Ldc_I4_1: stack.Push(1); break;
                     case Code.Ldc_I4_2: stack.Push(2); break;
@@ -434,12 +437,12 @@ namespace CilLogic.CodeModel
                             break;
                         }
 
-                    case Code.Stloc_0: Observe(new Opcode(0, Op.StLoc, 0, Pop())); break;
-                    case Code.Stloc_1: Observe(new Opcode(0, Op.StLoc, 1, Pop())); break;
-                    case Code.Stloc_2: Observe(new Opcode(0, Op.StLoc, 2, Pop())); break;
-                    case Code.Stloc_3: Observe(new Opcode(0, Op.StLoc, 3, Pop())); break;
+                    case Code.Stloc_0: Observe(new Opcode(0, Op.StLoc, 0, Pop(), new TypeOperand(variables[0].VariableType, method))); break;
+                    case Code.Stloc_1: Observe(new Opcode(0, Op.StLoc, 1, Pop(), new TypeOperand(variables[1].VariableType, method))); break;
+                    case Code.Stloc_2: Observe(new Opcode(0, Op.StLoc, 2, Pop(), new TypeOperand(variables[2].VariableType, method))); break;
+                    case Code.Stloc_3: Observe(new Opcode(0, Op.StLoc, 3, Pop(), new TypeOperand(variables[3].VariableType, method))); break;
                     case Code.Stloc_S:
-                    case Code.Stloc: Observe(new Opcode(0, Op.StLoc, (ins.Operand as VariableReference).Index, Pop())); break;
+                    case Code.Stloc: Observe(new Opcode(0, Op.StLoc, (ins.Operand as VariableReference).Index, Pop(), new TypeOperand(variables[(ins.Operand as VariableReference).Index].VariableType, method))); break;
 
                     case Code.Ldfld:
                         {

@@ -14,7 +14,7 @@ namespace CilLogic
 {
     class Program
     {
-        static string FlowGraph(Method m)
+        static string CFG(Method m)
         {
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("digraph {");
@@ -27,10 +27,40 @@ namespace CilLogic
             return sb.ToString();
         }
 
+        static string DFG(Method m)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("digraph {");
+
+            foreach (var blk in m.AllInstructions())
+            {
+                foreach (var used in blk.Operands)
+                {
+                    void check(Operand u)
+                    {
+                        switch (u)
+                        {
+                            case ValueOperand vo:
+                                sb.AppendLine($"n{vo.Value} -> n{blk.Result};");
+                                break;
+                            case PhiOperand vo:
+                                check(vo.Value);
+                                break;
+                        }
+                    }
+
+                    check(used);
+                }
+            }
+
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
+
         static void Main(string[] args)
         {
             var sw = Stopwatch.StartNew();
-            
+
             // Resolve the type
             var asm = AssemblyDefinition.ReadAssembly(args[0]);
             var type = asm.FindType(args[1]);
@@ -48,6 +78,9 @@ namespace CilLogic
             CodePass.Process(inp.Method);
 
             File.WriteAllText(@"C:\Users\jepjoh2\Desktop\New Text Document.txt", (inp.Method).ToString());
+            File.WriteAllText(@"C:\Users\jepjoh2\Desktop\Flow.txt", DFG(inp.Method).ToString());
+
+            Process.Start(new ProcessStartInfo("dot", "-Tpng -otest.png Flow.txt") { WorkingDirectory = @"C:\Users\jepjoh2\Desktop", UseShellExecute = true });
 
             foreach (var scc in inp.Method.FindConnectedComponents().Where(x => x.Count > 1))
                 Console.WriteLine(string.Join(", ", scc.Select(x => x.Id)) + ": " + scc.All(s => s.IsStateInvariant()));

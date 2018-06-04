@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CilLogic.Utilities;
 
 namespace CilLogic.CodeModel.Passes
 {
@@ -16,10 +17,10 @@ namespace CilLogic.CodeModel.Passes
             var instrProviders = instrProvides.Where(kvp => kvp.Value != 0).ToDictionary(i => i.Value, i => i.Key);
             var usages = instrs.ToDictionary(i => i, i => i.Operands.OfType<ValueOperand>().Select(v => v.Value).Concat(
                 i.Operands.OfType<PhiOperand>().Select(v => v.Value).OfType<ValueOperand>().Select(v => v.Value)).Distinct().ToList());
-            
+
             var instrUsers = instrs.ToDictionary(i => i, i => new HashSet<Opcode>());
-            foreach(var usage in usages)
-                foreach(var value in usage.Value)
+            foreach (var usage in usages)
+                foreach (var value in usage.Value)
                     if (instrProviders.ContainsKey(value))
                         instrUsers[instrProviders[value]].Add(usage.Key);
 
@@ -110,7 +111,10 @@ namespace CilLogic.CodeModel.Passes
             }
 
             if (unused.Count > 0)
+            {
                 method.Blocks.RemoveAll(unused.Contains);
+                method.AllInstructions().ForEach(ins => ins.Operands.RemoveAll(oper => (oper is PhiOperand po) && unused.Contains(po.Block)));
+            }
         }
 
         private void RemoveDeadJumps(Method method)
@@ -162,12 +166,12 @@ namespace CilLogic.CodeModel.Passes
                 {
                     var prevBlocks = nextBlocks.Where(kvp => kvp.Value.Contains(block)).Select(x => x.Key).ToList();
 
-                    if ((prevBlocks.Count == 1) && 
+                    if ((prevBlocks.Count == 1) &&
                         (nextBlocks[prevBlocks[0]].Count == 1) &&
                         !block.Instructions.Any(i => i.Op == Op.Phi))
                     {
                         var pb = prevBlocks[0];
-                        
+
                         method.ReplaceBlockOperand(pb, new BlockOperand(block));
 
                         foreach (var instr in pb.Instructions.Reverse<Opcode>().Skip(1))
@@ -185,13 +189,107 @@ namespace CilLogic.CodeModel.Passes
             while (wasOK);
         }
 
+        public class EliminateJumpThrough : CodePass
+        {
+            public override void Pass(Method method)
+            {
+                while (true)
+                {
+                    var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.SelectMany(o => o.Operands).OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
+                    var thruBlocks = method.Blocks.Where(x => (x.Instructions.Count == 1) && (x.Instructions.Last().Op == Op.Br)).ToHashSet();
+
+                    var blk = method.Blocks.Except(thruBlocks).FirstOrDefault(f =>
+                    {
+                        var nb = nextBlocks[f];
+                        if ((nb.Count == 2) && (nb.Count(thruBlocks.Contains) == 1))
+                        {
+                            var thru = nb.FirstOrDefault(thruBlocks.Contains);
+                            var next = nextBlocks[thru].Single();
+
+                            if (nb.Contains(next)) return false;
+
+                            return true;
+                        }
+
+                        return false;
+                    });
+
+                    if (blk == null) break;
+
+                    {
+                        var nb = nextBlocks[blk];
+                        var thru = nb.FirstOrDefault(thruBlocks.Contains);
+                        var next = nextBlocks[thru].Single();
+
+                        foreach (var ins in blk.Instructions)
+                            for (int i = 0; i < ins.Operands.Count; i++)
+                            {
+                                var oper = ins[i];
+                                if ((oper is BlockOperand bo) && (bo.Block == thru))
+                                    ins.Operands[i] = new BlockOperand(next);
+                            }
+
+                        foreach (var phi in next.Instructions.Where(i => i.Op == Op.Phi))
+                        {
+                            var oldOp = phi.Operands.OfType<PhiOperand>().Where(po => po.Block == thru).Select(po => po.Value).FirstOrDefault();
+                            if (oldOp != null)
+                                phi.Operands.Add(new PhiOperand(blk, oldOp));
+                        }
+                    }
+                }
+            }
+        }
+
+        public class CodeHoist : CodePass
+        {
+            public override void Pass(Method method)
+            {
+                while (true)
+                {
+                    var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.SelectMany(o => o.Operands).OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
+                    var thruBlocks = method.Blocks.Where(x => (nextBlocks[x].Count == 1) && !x.Instructions.Where(o => o.Op != Op.Br).Any(y => y.HasSideEffects() || y.Op == Op.Phi)).ToHashSet();
+
+                    var blk = method.Blocks.Except(thruBlocks).FirstOrDefault(f =>
+                    {
+                        var nb = nextBlocks[f];
+                        if (nb.Any(thruBlocks.Contains))
+                        {
+                            var thru = nb.Where(thruBlocks.Contains).ToList();
+
+                            if (thru.All(x => x.Instructions.Count <= 1)) return false;
+                            if (f.Instructions.Where(x => !x.IsCondJump || x.Op == Op.Br).Any(x => x.HasSideEffects())) return false;
+
+                            return true;
+                        }
+
+                        return false;
+                    });
+
+                    if (blk == null) break;
+
+                    var toMigrate = nextBlocks[blk].Where(thruBlocks.Contains).ToList();
+
+                    var point = blk.Instructions.First();
+
+                    foreach(var rins in toMigrate.SelectMany(x => x.Instructions.Where(o => o.Op != Op.Br)).ToList())
+                    {
+                        blk.InsertBefore(rins, point);
+                        toMigrate.ForEach(f => f.Instructions.Remove(rins));
+                    }
+                }
+            }
+        }
+
         public override void Pass(Method method)
         {
             RemoveStaleBranches(method);
             CodePass.DoPass<PassDeadValues>(method, ">");
+            CodePass.DoPass<CodeHoist>(method, ">");
             RemoveDeadJumps(method);
             RemoveDeadBlocks(method);
             SpliceBlocks(method);
+            CodePass.DoPass<EliminateJumpThrough>(method, ">");
+            RemoveDeadBlocks(method);
         }
     }
 }
