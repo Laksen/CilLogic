@@ -9,6 +9,11 @@ namespace CilLogic.Utilities
 {
     public static class CodeHelpers
     {
+        public static bool IsBool(this TypeDef type)
+        {
+            return (type.GetWidth() == 1);
+        }
+
         public static bool IsPot(this UInt64 value, out int bits)
         {
             bits = 0;

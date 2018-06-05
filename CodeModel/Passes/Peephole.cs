@@ -282,16 +282,6 @@ namespace CilLogic.CodeModel.Passes
                                     }
                                     break;
                                 }
-                            case Op.Conv:
-                                {
-                                    if ((op[2] is ConstOperand width) && (op[1] is ConstOperand sign))
-                                    {
-                                        var newOp = new Opcode(op.Result, Op.Slice, op[0], (int)width.Value - 1, 0, 0, sign);
-                                        op.Block.Replace(op, newOp);
-                                        wasFixed = true;
-                                    }
-                                    break;
-                                }
                             case Op.Lsr:
                                 {
                                     if (op[1] is ConstOperand co)
@@ -376,6 +366,21 @@ namespace CilLogic.CodeModel.Passes
                                             wasFixed = true;
                                         }
                                     }
+                                    else if ((op[0] is ValueOperand vo1) && (op[1] is ValueOperand vo2))
+                                    {
+                                        var gen1 = ops.Where(x => x.Result == vo1.Value).FirstOrDefault();
+                                        if (gen1 == null) break;
+                                        var gen2 = ops.Where(x => x.Result == vo2.Value).FirstOrDefault();
+                                        if (gen2 == null) break;
+
+                                        if ((gen1.Op == Op.InSet) && (gen2.Op == Op.InSet) && (gen1[0].Equals(gen2[0])))
+                                        {
+                                            var values = gen1.Operands.Skip(1).Concat(gen2.Operands.Skip(1)).Cast<ConstOperand>().Select(x => x.Value).ToHashSet();
+
+                                            op.Block.Replace(op, new Opcode(op.Result, Op.InSet, new[] { gen1[0] }.Concat(values.Select(x => new ConstOperand(x))).ToArray()));
+                                            wasFixed = true;
+                                        }
+                                    }
                                     break;
                                 }
                             case Op.And:
@@ -393,6 +398,21 @@ namespace CilLogic.CodeModel.Passes
                                         else
                                         {
                                             op.Block.Replace(op, new Opcode(op.Result, Op.Slice, op[0], bits - 1, 0, 0, 0));
+                                            wasFixed = true;
+                                        }
+                                    }
+                                    else if ((op[0] is ValueOperand vo1) && (op[1] is ValueOperand vo2))
+                                    {
+                                        var gen1 = ops.Where(x => x.Result == vo1.Value).FirstOrDefault();
+                                        if (gen1 == null) break;
+                                        var gen2 = ops.Where(x => x.Result == vo2.Value).FirstOrDefault();
+                                        if (gen2 == null) break;
+
+                                        if ((gen1.Op == Op.InSet) && (gen2.Op == Op.InSet) && (gen1[0].Equals(gen2[0])))
+                                        {
+                                            var values = gen1.Operands.Skip(1).Cast<ConstOperand>().ToHashSet().Intersect(gen2.Operands.Skip(1).Cast<ConstOperand>()).Select(x => x.Value).ToList();
+
+                                            op.Block.Replace(op, new Opcode(op.Result, Op.InSet, new[] { gen1[0] }.Concat(values.Select(x => new ConstOperand(x))).ToArray()));
                                             wasFixed = true;
                                         }
                                     }
@@ -464,6 +484,8 @@ namespace CilLogic.CodeModel.Passes
                             case Op.Clt: o = new ConstOperand(a.SignedValue < b.SignedValue ? 1 : 0); break;
                             case Op.Cltu: o = new ConstOperand(a.Value < b.Value ? 1 : 0); break;
 
+                            case Op.InSet: o = new ConstOperand(a.Value == b.Value ? 1 : 0); break;
+
                             case Op.StLoc: break;
 
                             default:
@@ -511,6 +533,22 @@ namespace CilLogic.CodeModel.Passes
                                     break;
                                 }
 
+                            case Op.Insert:
+                                {
+                                    var origin = (ins[0] as ConstOperand).Value;
+                                    var m = (ins[1] as ConstOperand).Value;
+                                    var l = (ins[2] as ConstOperand).Value;
+                                    var v = (ins[3] as ConstOperand).Value;
+
+                                    if (m < 64)
+                                    {
+                                        UInt64 mask = (1UL << (int)(m - l + 1)) - 1;
+
+                                        o = new ConstOperand(origin | (v & mask) << (int)l, false, ins[0].OperandType.GetWidth());
+                                    }
+                                    break;
+                                }
+
                             default:
                                 Console.WriteLine(ins);
                                 break;
@@ -529,6 +567,35 @@ namespace CilLogic.CodeModel.Passes
 
                     switch (ins.Op)
                     {
+                        case Op.Mux:
+                            {
+                                if ((ins[1] is ConstOperand co1) && (co1.Value == 0) &&
+                                    (ins[2] is ConstOperand co2) && (co2.Value == 1))
+                                {
+                                    var newop = new Opcode(ins.Result, Op.Mov, ins[0]);
+                                    ins.Block.Replace(ins, newop);
+                                    queue.Enqueue(newop);
+                                }
+                                else if ((ins[2] is ConstOperand co3) && (co3.Value == 0) && ins[1].OperandType.IsBool() && ins[0].OperandType.IsBool())
+                                {
+                                    var newop = new Opcode(ins.Result, Op.Or, ins[0], ins[1]);
+                                    ins.Block.Replace(ins, newop);
+                                    queue.Enqueue(newop);
+                                }
+                                else if ((ins[1] is ConstOperand co4) && (co4.Value == 0) && ins[2].OperandType.IsBool() && ins[0].OperandType.IsBool())
+                                {
+                                    var newop = new Opcode(ins.Result, Op.And, ins[0], ins[2]);
+                                    ins.Block.Replace(ins, newop);
+                                    queue.Enqueue(newop);
+                                }
+                                else if ((ins[1] is ConstOperand co5) && (co5.Value == 1) && ins[2].OperandType.IsBool() && ins[0].OperandType.IsBool())
+                                {
+                                    var newop = new Opcode(ins.Result, Op.Or, ins[0], ins[2]);
+                                    ins.Block.Replace(ins, newop);
+                                    queue.Enqueue(newop);
+                                }
+                                break;
+                            }
                         case Op.Or:
                             {
                                 if ((ins[1] is ConstOperand co) && (co.Value == 0))
@@ -554,8 +621,20 @@ namespace CilLogic.CodeModel.Passes
                         case Op.Conv:
                             {
                                 if (ins.Operands[0] is ConstOperand co)
-                                    foreach (var i2 in method.ReplaceValue(ins.Result, new ConstOperand(co.Value, (ins.Operands[1] as ConstOperand).Value != 0, (int)(ins.Operands[1] as ConstOperand).Value)))
+                                {
+                                    Operand oper;
+
+                                    var dWidth = (int)(ins[2] as ConstOperand).Value;
+                                    var dSign = (ins[1] as ConstOperand).Value != 0;
+
+                                    if (co.Signed && dSign)
+                                        oper = new ConstOperand((UInt64)co.SignedValue, dSign, dWidth);
+                                    else
+                                        oper = new ConstOperand(co.Value, dSign, dWidth);
+
+                                    foreach (var i2 in method.ReplaceValue(ins.Result, oper))
                                         queue.Enqueue(i2);
+                                }
                                 break;
                             }
                         case Op.BrTrue:

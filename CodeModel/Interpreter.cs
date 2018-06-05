@@ -60,7 +60,7 @@ namespace CilLogic.CodeModel
         private Dictionary<Instruction, T> Analyze<T>(List<Instruction> instructions, bool hasResult) where T : InstructionInfo, new()
         {
             var res = new Dictionary<Instruction, T>();
-            foreach (var r in instructions) res[r] = new T() { Method = Method};
+            foreach (var r in instructions) res[r] = new T() { Method = Method };
 
             var toVisit = new Queue<Tuple<int, Instruction>>();
             var visited = new HashSet<int>();
@@ -276,8 +276,14 @@ namespace CilLogic.CodeModel
 
                     case Code.Br: case Code.Br_S: Observe(new Opcode(0, Op.Br, jumpPoints[ins.Operand as Instruction])); break;
 
-                    case Code.Brfalse: case Code.Brfalse_S: Observe(new Opcode(0, Op.BrFalse, Pop(), jumpPoints[ins.Operand as Instruction])); break;
-                    case Code.Brtrue: case Code.Brtrue_S: Observe(new Opcode(0, Op.BrTrue, Pop(), jumpPoints[ins.Operand as Instruction])); break;
+                    case Code.Brfalse:
+                    case Code.Brfalse_S:
+                        Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Ceq, Pop(), 0))), jumpPoints[ins.Operand as Instruction]));
+                        break;
+                    case Code.Brtrue:
+                    case Code.Brtrue_S:
+                        Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Ceq, Pop(), 0))), jumpPoints[ins.Operand as Instruction]));
+                        break;
 
                     case Code.Dup: stack.Push(stack.Peek()); break;
                     case Code.Pop: Pop(); break;
@@ -303,7 +309,7 @@ namespace CilLogic.CodeModel
                     case Code.Clt: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Clt, b, a))); break; }
                     case Code.Clt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Cltu, b, a))); break; }
 
-                    case Code.Not: { var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Xor, a, -1))); break; }
+                    case Code.Not: { var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Xor, a, new ConstOperand(~0UL)))); break; }
 
                     case Code.Add: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Add, a, b))); break; }
                     case Code.Sub: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Sub, a, b))); break; }
@@ -453,7 +459,7 @@ namespace CilLogic.CodeModel
                         {
                             var value = Pop();
                             var obj = Pop();
-                            Observe(new Opcode(method.GetValue(), Op.StFld, obj, new FieldOperand((FieldReference)ins.Operand, method), value));
+                            Observe(new Opcode(0, Op.StFld, obj, new FieldOperand((FieldReference)ins.Operand, method), value));
                             break;
                         }
 
