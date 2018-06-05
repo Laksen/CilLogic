@@ -244,6 +244,8 @@ namespace CilLogic.CodeModel.Passes
 
                     var ops = method.AllInstructions();
 
+                    var producers = ops.Where(r => r.Result != 0).ToDictionary(x => x.Result, x => x);
+
                     /*var usage = ops.ToDictionary(o => o, o => o.Operands.OfType<ValueOperand>().Select(x => x.Value).ToHashSet());
                     var users = ops.ToDictionary(o => o, o => ops.Where(d => usage[d].Contains(o.Result)).ToHashSet());*/
 
@@ -255,8 +257,7 @@ namespace CilLogic.CodeModel.Passes
                                 {
                                     if ((op[0] is ValueOperand vo) && (op[1] is ConstOperand vmsb) && (op[2] is ConstOperand vlsb) && (op[3] is ConstOperand vshift) && (op[4] is ConstOperand vsign))
                                     {
-                                        var gen = ops.Where(x => x.Result == vo.Value).FirstOrDefault();
-                                        if (gen == null) break;
+                                        var gen = producers[vo.Value];
 
                                         if ((gen.Op == Op.Slice) && (gen[1] is ConstOperand msb) && (gen[2] is ConstOperand lsb) && (gen[3] is ConstOperand shift) && (gen[4] is ConstOperand sign))
                                         {
@@ -279,6 +280,32 @@ namespace CilLogic.CodeModel.Passes
                                             op.Block.Replace(op, newOp);
                                             wasFixed = true;
                                         }
+                                    }
+                                    break;
+                                }
+                            case Op.BrCond:
+                                {
+                                    if (op[0] is ValueOperand vo)
+                                    {
+                                        var gen = producers[vo.Value];
+
+                                        if ((gen.Op == Op.InSet) &&
+                                            (gen.Operands.Count == 2) &&
+                                            (gen[1] is ConstOperand co) &&
+                                            (co.Value == 0) &&
+                                            (gen[0].OperandType.GetWidth() == 1))
+                                        {
+                                            op.Operands[0] = gen[0];
+
+                                            var t = op[1];
+                                            op.Operands[1] = op[2];
+                                            op.Operands[2] = t;
+                                            wasFixed = true;
+                                        }
+
+                                        /*var newOp = new Opcode(op.Result, Op.Slice, op[0], 63, co.Value, 0, 0);
+                                        op.Block.Replace(op, newOp);
+                                        wasFixed = true;*/
                                     }
                                     break;
                                 }
@@ -321,11 +348,8 @@ namespace CilLogic.CodeModel.Passes
                                         (op[0] is ValueOperand cond) &&
                                         (op[1] is ValueOperand v1))
                                     {
-                                        var cg = ops.Where(x => x.Result == cond.Value).FirstOrDefault();
-                                        if (cg == null) break;
-
-                                        var cv = ops.Where(x => x.Result == v1.Value).FirstOrDefault();
-                                        if (cv == null) break;
+                                        var cg = producers[cond.Value];
+                                        var cv = producers[v1.Value];
 
                                         if ((cv.Op == Op.InSet) && (cg.Op == Op.InSet) && (cv[0].Equals(cg[0])))
                                         {
@@ -339,8 +363,7 @@ namespace CilLogic.CodeModel.Passes
                                         (op[0] is ValueOperand cnd) &&
                                         (op[2] is ValueOperand v2))
                                     {
-                                        var cv = ops.Where(x => x.Result == v2.Value).FirstOrDefault();
-                                        if (cv == null) break;
+                                        var cv = producers[v2.Value];
 
                                         if ((cv.Op == Op.InSet) && (cv[0] is ValueOperand vt) && (vt.Value == cnd.Value))
                                         {
@@ -355,10 +378,9 @@ namespace CilLogic.CodeModel.Passes
                                 }
                             case Op.Or:
                                 {
-                                    if ((op[0] is ValueOperand vo) && (op[1] is ConstOperand co2))
+                                    if ((op.Operands.Count == 2) && (op[0] is ValueOperand vo) && (op[1] is ConstOperand co2))
                                     {
-                                        var gen = ops.Where(x => x.Result == vo.Value).FirstOrDefault();
-                                        if (gen == null) break;
+                                        var gen = producers[vo.Value];
 
                                         if ((gen.Op == Op.Or) && (gen[1] is ConstOperand v))
                                         {
@@ -366,12 +388,10 @@ namespace CilLogic.CodeModel.Passes
                                             wasFixed = true;
                                         }
                                     }
-                                    else if ((op[0] is ValueOperand vo1) && (op[1] is ValueOperand vo2))
+                                    else if ((op.Operands.Count == 2) && (op[0] is ValueOperand vo1) && (op[1] is ValueOperand vo2))
                                     {
-                                        var gen1 = ops.Where(x => x.Result == vo1.Value).FirstOrDefault();
-                                        if (gen1 == null) break;
-                                        var gen2 = ops.Where(x => x.Result == vo2.Value).FirstOrDefault();
-                                        if (gen2 == null) break;
+                                        var gen1 = producers[vo1.Value];
+                                        var gen2 = producers[vo2.Value];
 
                                         if ((gen1.Op == Op.InSet) && (gen2.Op == Op.InSet) && (gen1[0].Equals(gen2[0])))
                                         {
@@ -381,14 +401,27 @@ namespace CilLogic.CodeModel.Passes
                                             wasFixed = true;
                                         }
                                     }
+
+                                    if (!wasFixed)
+                                    {
+                                        var otherOrs = op.Operands.OfType<ValueOperand>().Where(p => producers[p.Value].Op == Op.Or).ToList();
+
+                                        if (otherOrs.Any())
+                                        {
+                                            var old = op.Operands.ToList();
+                                            op.Operands.Clear();
+                                            op.Operands.AddRange(old.Except(otherOrs).Concat(otherOrs.SelectMany(x => producers[x.Value].Operands)).ToHashSet().ToList());
+                                            wasFixed = true;
+                                            //TODO var values =
+                                        }
+                                    }
                                     break;
                                 }
                             case Op.And:
                                 {
                                     if ((op[0] is ValueOperand vo) && (op[1] is ConstOperand co2) && ((co2.Value + 1).IsPot(out int bits)))
                                     {
-                                        var gen = ops.Where(x => x.Result == vo.Value).FirstOrDefault();
-                                        if (gen == null) break;
+                                        var gen = producers[vo.Value];
 
                                         if ((gen.Op == Op.Slice) && (gen[1] is ConstOperand msb) && (gen[2] is ConstOperand lsb) && (gen[3] is ConstOperand shift) && (shift.Value == 0))
                                         {
@@ -403,10 +436,8 @@ namespace CilLogic.CodeModel.Passes
                                     }
                                     else if ((op[0] is ValueOperand vo1) && (op[1] is ValueOperand vo2))
                                     {
-                                        var gen1 = ops.Where(x => x.Result == vo1.Value).FirstOrDefault();
-                                        if (gen1 == null) break;
-                                        var gen2 = ops.Where(x => x.Result == vo2.Value).FirstOrDefault();
-                                        if (gen2 == null) break;
+                                        var gen1 = producers[vo1.Value];
+                                        var gen2 = producers[vo2.Value];
 
                                         if ((gen1.Op == Op.InSet) && (gen2.Op == Op.InSet) && (gen1[0].Equals(gen2[0])))
                                         {
@@ -422,8 +453,7 @@ namespace CilLogic.CodeModel.Passes
                                 {
                                     if ((op[0] is ValueOperand vo) && (op[1] is ConstOperand co2))
                                     {
-                                        var gen = ops.Where(x => x.Result == vo.Value).FirstOrDefault();
-                                        if (gen == null) break;
+                                        var gen = producers[vo.Value];
 
                                         if ((gen.Op == Op.Slice) && (gen[1] is ConstOperand msb) && (gen[2] is ConstOperand lsb) && (gen[3] is ConstOperand shift))
                                         {
@@ -480,11 +510,11 @@ namespace CilLogic.CodeModel.Passes
                             case Op.Asr: o = new ConstOperand((UInt64)((Int64)(a.Value) >> (int)b.Value)); break;
                             case Op.Lsr: o = new ConstOperand(a.Value >> (int)b.Value); break;
 
-                            case Op.Ceq: o = new ConstOperand(a.Value == b.Value ? 1 : 0); break;
-                            case Op.Clt: o = new ConstOperand(a.SignedValue < b.SignedValue ? 1 : 0); break;
-                            case Op.Cltu: o = new ConstOperand(a.Value < b.Value ? 1 : 0); break;
+                            case Op.Ceq: o = new ConstOperand(a.Value == b.Value ? 1UL : 0, false, 1); break;
+                            case Op.Clt: o = new ConstOperand(a.SignedValue < b.SignedValue ? 1UL : 0, false, 1); break;
+                            case Op.Cltu: o = new ConstOperand(a.Value < b.Value ? 1UL : 0, false, 1); break;
 
-                            case Op.InSet: o = new ConstOperand(a.Value == b.Value ? 1 : 0); break;
+                            case Op.InSet: o = new ConstOperand(a.Value == b.Value ? 1UL : 0, false, 1); break;
 
                             case Op.StLoc: break;
 
@@ -598,17 +628,32 @@ namespace CilLogic.CodeModel.Passes
                             }
                         case Op.Or:
                             {
-                                if ((ins[1] is ConstOperand co) && (co.Value == 0))
+                                var oldConst = ins.Operands.OfType<ConstOperand>().FirstOrDefault();
+                                if ((oldConst != null) && ins.Operands.RemoveAll(o => (o is ConstOperand co2) && (co2.Value == 0)) > 0)
                                 {
-                                    var newop = new Opcode(ins.Result, Op.Mov, ins[0]);
-                                    ins.Block.Replace(ins, newop);
-                                    queue.Enqueue(newop);
+                                    if (ins.Operands.Count == 0)
+                                    {
+                                        var newop = new Opcode(ins.Result, Op.Mov, oldConst);
+                                        ins.Block.Replace(ins, newop);
+                                        queue.Enqueue(newop);
+                                    }
+                                    else if (ins.Operands.Count == 1)
+                                    {
+                                        var newop = new Opcode(ins.Result, Op.Mov, ins[0]);
+                                        ins.Block.Replace(ins, newop);
+                                        queue.Enqueue(newop);
+                                    }
                                 }
-                                else if (ins[0] is ConstOperand)
+                                else if (ins.Operands.OfType<ConstOperand>().Count() > 1)
                                 {
-                                    var newop = new Opcode(ins.Result, Op.Or, ins[1], ins[0]);
-                                    ins.Block.Replace(ins, newop);
-                                    queue.Enqueue(newop);
+                                    var value = oldConst;
+
+                                    foreach (var oper in ins.Operands.OfType<ConstOperand>())
+                                        value = new ConstOperand(value.Value | oper.Value, value.Signed, value.Width);
+
+                                    ins.Operands.RemoveAll(o => (o is ConstOperand));
+                                    ins.Operands.Add(value);
+                                    queue.Enqueue(ins);
                                 }
                                 break;
                             }
@@ -634,6 +679,10 @@ namespace CilLogic.CodeModel.Passes
 
                                     foreach (var i2 in method.ReplaceValue(ins.Result, oper))
                                         queue.Enqueue(i2);
+                                }
+                                else
+                                {
+                                    ins.Block.Replace(ins, new Opcode(ins.Result, Op.Slice, ins[0], (ins[2] as ConstOperand).Value - 1, 0, 0, (ins[1] as ConstOperand).Value));
                                 }
                                 break;
                             }

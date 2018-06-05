@@ -278,12 +278,18 @@ namespace CilLogic.CodeModel
 
                     case Code.Brfalse:
                     case Code.Brfalse_S:
-                        Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Ceq, Pop(), 0))), jumpPoints[ins.Operand as Instruction]));
-                        break;
+                        {
+                            var v = Pop();
+                            Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Ceq, v, new ConstOperand(0,false, v.OperandType.GetWidth())))), jumpPoints[ins.Operand as Instruction]));
+                            break;
+                        }
                     case Code.Brtrue:
                     case Code.Brtrue_S:
-                        Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Ceq, Pop(), 0))), jumpPoints[ins.Operand as Instruction]));
-                        break;
+                        {
+                            var v = Pop();
+                            Observe(new Opcode(0, Op.BrFalse, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Ceq, v, new ConstOperand(0,false, v.OperandType.GetWidth())))), jumpPoints[ins.Operand as Instruction]));
+                            break;
+                        }
 
                     case Code.Dup: stack.Push(stack.Peek()); break;
                     case Code.Pop: Pop(); break;

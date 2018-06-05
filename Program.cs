@@ -78,7 +78,7 @@ namespace CilLogic
             CodePass.Process(inp.Method);
 
             File.WriteAllText(@"C:\Users\jepjoh2\Desktop\New Text Document.txt", (inp.Method).ToString());
-            File.WriteAllText(@"C:\Users\jepjoh2\Desktop\Flow.txt", DFG(inp.Method).ToString());
+            File.WriteAllText(@"C:\Users\jepjoh2\Desktop\Flow.txt", CFG(inp.Method).ToString());
 
             Process.Start(new ProcessStartInfo("dot", "-Tpng -otest.png Flow.txt") { WorkingDirectory = @"C:\Users\jepjoh2\Desktop", UseShellExecute = true });
 
