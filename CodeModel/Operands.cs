@@ -113,7 +113,7 @@ namespace CilLogic.CodeModel
 
         public override int GetHashCode() { return (int)(Value + (UInt64)(Signed ? 1000 : 0 + Width)); }
 
-        public override string ToString() { return Value.ToString("X"); }
+        public override string ToString() { return Value.ToString(); }
 
         public ConstOperand(UInt64 value) : base(VectorType.Int64) { Value = value; Signed = true; Width = 64; }
         public ConstOperand(int value) : base(VectorType.Int32) { Value = (UInt64)(UInt32)value; Signed = true; Width = 32; }

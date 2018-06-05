@@ -17,6 +17,8 @@ namespace CilLogic.Utilities
         public static bool IsPot(this UInt64 value, out int bits)
         {
             bits = 0;
+            if (value == 0) return false;
+
             if (((value - 1) & value) == 0)
             {
                 bits = 0;
@@ -29,6 +31,23 @@ namespace CilLogic.Utilities
             }
             else
                 return false;
+        }
+
+        public static bool IsSlice(this UInt64 value, out int msb, out int lsb)
+        {
+            msb = 0;
+            lsb = 0;
+            if (value == 0) return false;
+
+            for (int i = 0; i < 64; i++)
+                if (IsPot((value >> i) + 1, out int bits))
+                {
+                    lsb = i;
+                    msb = i + bits - 1;
+                    return true;
+                }
+
+            return false;
         }
 
         private static bool IsPortType(this TypeDefinition td)
@@ -163,7 +182,7 @@ namespace CilLogic.Utilities
                 if (scope != null && (scope is IGenericInstance git2) && ((scope as TypeReference)?.GetElementType() is IGenericParameterProvider gpp2) && gpp2.GenericParameters.Contains(gp))
                     return git2.GenericArguments[gp.Position].Resolve(outerArgs);
 
-                if(scope.DeclaringType != null)
+                if (scope.DeclaringType != null)
                     return Resolve(type, scope.DeclaringType, outerArgs);
             }
 
