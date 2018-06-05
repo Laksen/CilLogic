@@ -3,14 +3,22 @@ using CilLogic.Types;
 
 namespace CilLogic.Tests
 {
-    public struct CSRResult
+    public class RiscV : Actor
     {
-        public bool Ok;
-        public UInt64 OldValue;
-    }
+        private const bool UseM = false;
+        private const bool UseA = false;
+        private const bool UseF = false;
+        private const bool UseD = false;
+        private const bool UseC = false;
 
-    public struct hart_state
-    {
+        public IRequest<UInt64, InstrResponse> IMem { get; set; }
+
+        public IRequest<MemRequest, MemResponse> DMem { get; set; }
+
+        private UInt64[] regs;
+
+        private UInt64 pc = 0;
+
         public const UInt64 mvendorid = 0;
         public const UInt64 marchid = 0;
         public const UInt64 mimpid = 0;
@@ -30,7 +38,9 @@ namespace CilLogic.Tests
         public UInt64 mcycle;
         public UInt64 minstret;
 
-        public CSRResult WriteRegister(UInt64 addr, UInt64 clearMask, UInt64 setMask)
+        public UInt64 MPP { get { return E(mstatus, 12, 11); } }
+
+        public CSRResult WriteRegister(UInt64 addr, UInt64 clearMask, UInt64 setMask, bool write, bool read)
         {
             UInt64 res = 0;
 
@@ -62,134 +72,46 @@ namespace CilLogic.Tests
                     case 0x3: res = mtval; break;
                     case 0x4: res = mip; break;
                 }
+            else
+                return new CSRResult { Ok = false, OldValue = 0 };
 
             var old = res;
             res = (res & clearMask) | setMask;
             var ok = true;
 
-            if ((addr & 0xFF0) == 0x300)
-                switch (addr & 0xF)
-                {
-                    case 0x0: mstatus = res; break;
-                    case 0x1: misa = res; break;
-                    case 0x4: mie = res; break;
-                    case 0x5: mtvec = res; break;
-                    case 0x6: mcounteren = res; break;
-                    default: ok = false; break;
-                }
-            else if ((addr & 0xFF0) == 0x340)
-                switch (addr & 0xF)
-                {
-                    case 0x0: mscratch = res; break;
-                    case 0x1: mepc = res; break;
-                    case 0x2: mcause = res; break;
-                    case 0x3: mtval = res; break;
-                    case 0x4: mip = res; break;
-                    default: ok = false; break;
-                }
-            else
-                ok = false;
+            if (write)
+            {
+                if ((addr & 0xFF0) == 0x300)
+                    switch (addr & 0xF)
+                    {
+                        case 0x0: mstatus = res; break;
+                        case 0x1: misa = res; break;
+                        case 0x4: mie = res; break;
+                        case 0x5: mtvec = res; break;
+                        case 0x6: mcounteren = res; break;
+                        default: ok = false; break;
+                    }
+                else if ((addr & 0xFF0) == 0x340)
+                    switch (addr & 0xF)
+                    {
+                        case 0x0: mscratch = res; break;
+                        case 0x1: mepc = res; break;
+                        case 0x2: mcause = res; break;
+                        case 0x3: mtval = res; break;
+                        case 0x4: mip = res; break;
+                        default: ok = false; break;
+                    }
+                else
+                    ok = false;
+            }
 
             return new CSRResult { Ok = ok, OldValue = old };
         }
-    }
 
-    [BitWidth(4)]
-    public enum ErrorType
-    {
-        InstrUnaligned = 0,
-        InstrAccess = 1,
-        IllegalInstruction = 2,
-        BreakPoint = 3,
-        LoadUnaligned = 4,
-        LoadAccess = 5,
-        StoreUnaligned = 6,
-        StoreAccess = 7,
-        ECallU = 8,
-        ECallS = 9,
-        ECallM = 11,
-        InstrPageFault = 12,
-        LoadPageFault = 13,
-        StorePageFault = 15
-    }
+        internal void Trap()
+        {
 
-    public enum Opcode
-    {
-        // RV32I
-        lui = 0x0D,
-        auipc = 0x05,
-        jal = 0x1b,
-        jalr = 0x19,
-        beq = 0x18,
-        ld = 0x00,
-        sd = 0x08,
-        addi = 0x04,
-        add = 0x0C,
-        fence = 0x03,
-
-        sys = 0x1C,
-
-        // RV64I
-        addiw = 0x06,
-        addw = 0x0E,
-
-        // RV32D
-        fld = 0x01,
-        fsd = 0x09,
-    }
-
-    public enum F3_Load : UInt32
-    {
-        LB = 0,
-        LH = 1,
-        LW = 2,
-        LBU = 4,
-        LHU = 5,
-        LWU = 6,
-        LD = 3,
-    }
-
-    public enum F3_Store : UInt32
-    {
-        SB = 0,
-        SH = 1,
-        SW = 2,
-        SD = 3,
-    }
-
-    public enum F3_B : UInt32
-    {
-        Eq = 0,
-        Ne = 1,
-        Lt = 2,
-        Ge = 3,
-        Ltu = 6,
-        Geu = 7
-    }
-
-    public enum F3_Alu : UInt32
-    {
-        Add = 0,
-        Sll = 1,
-        Slt = 2,
-        Sltu = 3,
-        Xor = 4,
-        Srl = 5,
-        Or = 6,
-        And = 7
-    }
-
-    public class RiscV : Actor
-    {
-        public IRequest<UInt64, InstrResponse> IMem { get; set; }
-
-        public IRequest<MemRequest, MemResponse> DMem { get; set; }
-
-        private UInt64[] regs;
-
-        private UInt64 pc = 0;
-
-        private hart_state HartState;
+        }
 
         static UInt64 E(UInt64 value, int msb, int lsb)
         {
@@ -199,7 +121,7 @@ namespace CilLogic.Tests
         static UInt64 SignExtend(UInt64 value, int msb)
         {
             return (UInt64)(((Int64)(value << (64 - msb - 1)))
-             >> (64 - msb - 1));
+            >> (64 - msb - 1));
         }
 
         static UInt64 AluOp(UInt64 a, UInt64 b, UInt64 f3, UInt64 f7, UInt64 shiftMask)
@@ -398,9 +320,8 @@ namespace CilLogic.Tests
         {
             var curr_pc = pc;
 
-            var state = HartState;
-
-            var errorCause = ErrorType.InstrUnaligned;
+            UInt64 tval = curr_pc;
+            var errorCause = ErrorType.IllegalInstruction;
             var fetchError = true;
 
             UInt32 instr;
@@ -419,16 +340,26 @@ namespace CilLogic.Tests
                 instr = fetchError ? 0 : instrResp.Instruction;
             }
             else
+            {
+                errorCause = ErrorType.InstrUnaligned;
                 instr = 0;
+            }
 
             var npc = curr_pc + 4;
-            var xlen = E(state.misa, 63, 62) == 2 ? 64 : 32;
+            var xlen = E(misa, 63, 62) == 2 ? 64 : 32;
             var is64 = xlen == 64;
 
-            //instr = ExpandCompressed(instr);
+            if (UseC)
+                instr = ExpandCompressed(instr);
 
             // Set the most likely outcome
             pc = npc;
+
+            if (!fetchError && (E(instr, 1,0) != 3))
+            {
+                tval = instr;
+                instr = 0;
+            }
 
             // Decode instruction
             var opcode = (Opcode)((instr >> 2) & 0x1F);
@@ -492,40 +423,30 @@ namespace CilLogic.Tests
 
             var add_check = ((f3 == 0) || (f3 == 5)) ? false : f7_n;
 
-            var pc_imm =
-                opcode == Opcode.jalr ? result :
-                imm;
+            var pc_imm = opcode == Opcode.jalr ? result : imm;
             var calc_pc = curr_pc + pc_imm;
 
             switch (opcode)
             {
                 case Opcode.add:
                     if (!f7_w || add_check)
-                    {
-                        errorCause = ErrorType.IllegalInstruction;
                         goto default;
-                    }
                     break;
+
                 case Opcode.addi:
                     if (add_check)
-                    {
-                        errorCause = ErrorType.IllegalInstruction;
                         goto default;
-                    }
                     break;
 
                 case Opcode.addw:
                     if (!f7_w || add_check)
-                    {
-                        errorCause = ErrorType.IllegalInstruction;
                         goto default;
-                    }
                     else
                         goto case Opcode.addiw;
+
                 case Opcode.addiw:
                     if (add_check)
                     {
-                        errorCause = ErrorType.IllegalInstruction;
                         goto default;
                     }
                     result = SignExtend(result, 31);
@@ -557,10 +478,11 @@ namespace CilLogic.Tests
                         UInt64 mask = 0;
                         int msb = 0;
                         UInt64 addrMask = 0;
-                        bool signed = false;
                         bool fail = false;
 
-                        switch ((F3_Load)f3)
+                        var _f3 = (F3_Load)f3;
+
+                        switch (_f3)
                         {
                             case F3_Load.LBU:
                             case F3_Load.LB: msb = 7; mask = 0xFF; w = MemWidth.B; break;
@@ -568,22 +490,14 @@ namespace CilLogic.Tests
                             case F3_Load.LH: addrMask = 1; msb = 15; mask = 0xFFFF; w = MemWidth.H; break;
                             case F3_Load.LWU:
                             case F3_Load.LW: addrMask = 3; msb = 31; mask = 0xFFFF_FFFF; w = MemWidth.W; break;
-                            case F3_Load.LD: addrMask = 7; msb = 63; mask = ~((UInt64)0); w = MemWidth.D; break;
+                            case F3_Load.LD: addrMask = 7; msb = 63; mask = 0xFFFF_FFFF_FFFF_FFFF; w = MemWidth.D; break;
                             default: fail = true; break;
                         }
 
-                        switch ((F3_Load)f3)
-                        {
-                            case F3_Load.LB:
-                            case F3_Load.LH:
-                            case F3_Load.LW: signed = true; break;
-                        }
+                        var signed = (_f3 == F3_Load.LB) || (_f3 == F3_Load.LH) || (_f3 == F3_Load.LW);
 
                         if (fail)
-                        {
-                            errorCause = ErrorType.IllegalInstruction;
                             goto default;
-                        }
                         else if ((result & addrMask) != 0)
                         {
                             errorCause = ErrorType.LoadUnaligned;
@@ -637,10 +551,7 @@ namespace CilLogic.Tests
                         }
 
                         if (fail)
-                        {
-                            errorCause = ErrorType.IllegalInstruction;
                             goto default;
-                        }
                         else if ((result & addrMask) != 0)
                         {
                             errorCause = ErrorType.LoadUnaligned;
@@ -680,14 +591,75 @@ namespace CilLogic.Tests
 
                 case Opcode.sys:
                     {
+                        if ((F3_Sys)f3 == F3_Sys.ECall)
+                        {
+                            if ((rd == 0) && (rs1 == 0) && (E(instr, 31, 21) == 0))
+                            {
+                                int CurrentPP = (int)MPP;
+                                errorCause =
+                                    (E(instr, 20, 20) == 0) ? (ErrorType.ECallU + CurrentPP) :
+                                    ErrorType.BreakPoint;
+                            }
+                            goto default;
+                        }
+                        else if (f3 == 4)
+                            goto default;
+                        else
+                        {
+                            // CSR operations
+                            var _f3 = (F3_Sys)f3;
+
+                            var writeValue =
+                                ((_f3 == F3_Sys.CSRRCI) || (_f3 == F3_Sys.CSRRSI) || (_f3 == F3_Sys.CSRRWI)) ? rs1 :
+                                vrs1;
+
+                            var doWrite =
+                                ((_f3 == F3_Sys.CSRRCI) || (_f3 == F3_Sys.CSRRSI) || (_f3 == F3_Sys.CSRRC) || (_f3 == F3_Sys.CSRRS)) ? (rs1 != 0) :
+                                true;
+
+                            UInt64 cMask = 0xFFFF_FFFF_FFFF_FFFF;
+                            UInt64 sMask = writeValue;
+
+                            switch (_f3)
+                            {
+                                case F3_Sys.CSRRS:
+                                case F3_Sys.CSRRSI:
+                                    cMask = 0;
+                                    break;
+                                case F3_Sys.CSRRC:
+                                case F3_Sys.CSRRCI:
+                                    cMask = sMask;
+                                    sMask = 0;
+                                    break;
+                            }
+
+                            var csr = imm;
+
+                            var res = WriteRegister(csr, cMask, sMask, doWrite, rd != 0);
+
+                            if (res.Ok)
+                                result = res.OldValue;
+                            else
+                            {
+                                errorCause = ErrorType.IllegalInstruction;
+                                goto default;
+                            }
+                        }
+
                         break;
                     }
 
                 default:
                     {
+                        mcause = (UInt64)errorCause;
+                        Trap();
+                        mepc = curr_pc;
+                        mtval = tval;
+
+                        pc = mtvec;
+
                         // Failed :(
-                        rd = 0;
-                        break;
+                        return;
                     }
             }
 
@@ -736,5 +708,109 @@ namespace CilLogic.Tests
         H,
         W,
         D
+    }
+
+    public struct CSRResult
+    {
+        public bool Ok;
+        public UInt64 OldValue;
+    }
+
+    [BitWidth(4)]
+    public enum ErrorType
+    {
+        InstrUnaligned = 0,
+        InstrAccess = 1,
+        IllegalInstruction = 2,
+        BreakPoint = 3,
+        LoadUnaligned = 4,
+        LoadAccess = 5,
+        StoreUnaligned = 6,
+        StoreAccess = 7,
+        ECallU = 8,
+        ECallS = 9,
+        ECallM = 11,
+        InstrPageFault = 12,
+        LoadPageFault = 13,
+        StorePageFault = 15
+    }
+
+    public enum Opcode
+    {
+        // RV32I
+        lui = 0x0D,
+        auipc = 0x05,
+        jal = 0x1b,
+        jalr = 0x19,
+        beq = 0x18,
+        ld = 0x00,
+        sd = 0x08,
+        addi = 0x04,
+        add = 0x0C,
+        fence = 0x03,
+
+        sys = 0x1C,
+
+        // RV64I
+        addiw = 0x06,
+        addw = 0x0E,
+
+        // RV32D
+        fld = 0x01,
+        fsd = 0x09,
+    }
+
+    public enum F3_Load : UInt32
+    {
+        LB = 0,
+        LH = 1,
+        LW = 2,
+        LBU = 4,
+        LHU = 5,
+        LWU = 6,
+        LD = 3,
+    }
+
+    public enum F3_Store : UInt32
+    {
+        SB = 0,
+        SH = 1,
+        SW = 2,
+        SD = 3,
+    }
+
+    public enum F3_B : UInt32
+    {
+        Eq = 0,
+        Ne = 1,
+        Lt = 2,
+        Ge = 3,
+        Ltu = 6,
+        Geu = 7
+    }
+
+    public enum F3_Alu : UInt32
+    {
+        Add = 0,
+        Sll = 1,
+        Slt = 2,
+        Sltu = 3,
+        Xor = 4,
+        Srl = 5,
+        Or = 6,
+        And = 7
+    }
+
+    public enum F3_Sys : UInt32
+    {
+        ECall = 0,
+
+        CSRRW = 1,
+        CSRRS = 2,
+        CSRRC = 3,
+
+        CSRRWI = 5,
+        CSRRSI = 6,
+        CSRRCI = 7,
     }
 }

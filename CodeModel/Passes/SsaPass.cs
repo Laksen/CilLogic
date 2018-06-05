@@ -31,7 +31,13 @@ namespace CilLogic.CodeModel.Passes
                             {
                                 var fref = (op[1] as FieldOperand).Field;
 
-                                throw new NotSupportedException("LdLoca/LdFld");
+                                var tw = fref.Resolve().GetInfo(fref.DeclaringType.Resolve(), method);
+
+                                var ldLoc = new Opcode(method.GetValue(), Op.LdLoc, locRef.Location, new TypeOperand(method.LocalTypes[locRef.Location], method));
+                                var extract = new Opcode(op.Result, Op.Slice, new ValueOperand(ldLoc.Result, ldLoc.GetResultType(method)), tw.Msb, tw.Lsb, 0, 0);
+
+                                op.Block.InsertBefore(ldLoc, op);
+                                op.Block.Replace(op, extract);
                             }
                             else if (op[0] is ValueOperand vo)
                             {
