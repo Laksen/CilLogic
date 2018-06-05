@@ -11,10 +11,11 @@ namespace CilLogic.CodeModel
     public class Operand
     {
         public TypeDef OperandType { get; set; }
+        public readonly string Stack;
 
         public Operand(TypeDef operandType)
         {
-            //if (operandType == null) throw new Exception("s");
+            //Stack = new System.Diagnostics.StackTrace(true).ToString();
             OperandType = operandType;
         }
 

@@ -20,7 +20,7 @@ namespace CilLogic.CodeModel.Passes
                             var typ = (op[1] as TypeOperand);
 
                             var v = method.GetValue();
-                            op.Block.InsertBefore(new Opcode(v, Op.Slice, typ.OperandType.GetWidth(), 0, 0, 0), op);
+                            op.Block.InsertBefore(new Opcode(v, Op.Slice, typ.OperandType.GetWidth(), 0, 0, 0, 0), op);
                             op.Block.Replace(op, new Opcode(0, Op.StLoc, locRef, new ValueOperand(v, typ.OperandType)));
 
                             break;
