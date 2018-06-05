@@ -94,8 +94,14 @@ namespace CilLogic.CodeModel
         public bool Signed { get; }
         public int Width { get; }
 
-        public Int64 SignedValue { get { return ((Int64)Value << (64-Width)) 
-        >> (64 - Width); } }
+        public Int64 SignedValue
+        {
+            get
+            {
+                return ((Int64)Value << (64 - Width))
+>> (64 - Width);
+            }
+        }
 
         public override bool Equals(object obj)
         {
@@ -168,6 +174,15 @@ namespace CilLogic.CodeModel
     {
         public TypeOperand(TypeReference type, Method method) : base(new CecilType<TypeDefinition>(type.Resolve(method.MethodRef, method.GenericParams), method))
         {
+        }
+    }
+
+    public class ArgumentOperand : Operand
+    {
+        public int Index { get; }
+        public ArgumentOperand(int index, TypeDef operandType) : base(operandType)
+        {
+            Index = index;
         }
     }
 }

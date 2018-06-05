@@ -27,7 +27,7 @@ namespace CilLogic.CodeModel.Passes
                     var val = (Op)md.CustomAttributes[0].ConstructorArguments[0].Value;
 
                     call.Block.Replace(call, new Opcode(call.Result, val, call.Operands.Skip(1).ToArray()));
-                    
+
                     continue;
                 }
 
@@ -36,14 +36,30 @@ namespace CilLogic.CodeModel.Passes
                 Dictionary<GenericParameter, TypeDefinition> genPara = new Dictionary<GenericParameter, TypeDefinition>();
                 if (md.HasGenericParameters && func.Method.IsGenericInstance)
                 {
-                    for(int i=0; i<md.GenericParameters.Count; i++)
-                    genPara[md.GenericParameters[i]] = (func.Method as IGenericInstance).GenericArguments[i].Resolve(method.GenericParams);
+                    for (int i = 0; i < md.GenericParameters.Count; i++)
+                        genPara[md.GenericParameters[i]] = (func.Method as IGenericInstance).GenericArguments[i].Resolve(method.GenericParams);
                     //var args = (func.Method as func.
                 }
 
-                var m = new Interpreter(func.Method, call.Operands.Skip(1).ToList(), genPara).Method;
+                var argCtr = 1;
+                var args = call.Operands.Skip(1).ToDictionary(f => argCtr++, f => f);
+
+                var m = new Interpreter(func.Method, args.Select(x => new ArgumentOperand(x.Key, x.Value.OperandType)).Cast<Operand>().ToList(), genPara).Method;
 
                 CodePass.Process(m);
+
+                Operand ReplaceArg(Operand inp)
+                {
+                    if (inp is PhiOperand po)
+                        return new PhiOperand(po.Block, ReplaceArg(po.Value));
+                    else if (inp is ArgumentOperand ao)
+                        return args[ao.Index];
+                    return inp;
+                }
+
+                foreach (var instrs in m.AllInstructions())
+                    for (int i = 0; i < instrs.Operands.Count; i++)
+                        instrs.Operands[i] = ReplaceArg(instrs[i]);
 
                 call.Block.Replace(call, new Opcode(0, Op.Br, new BlockOperand(m.Entry)));
 
@@ -51,7 +67,7 @@ namespace CilLogic.CodeModel.Passes
 
                 if (result != 0)
                     nextBlock.Prepend(new Opcode(result, Op.Phi, returns.Select(r => new PhiOperand(r.Block, r[0])).ToArray()));
-                    
+
                 returns.ForEach(r => r.Block.Replace(r, new Opcode(0, Op.Br, new BlockOperand(nextBlock))));
 
                 m.Blocks.ForEach(b => b.Method = method);

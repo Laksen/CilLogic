@@ -63,9 +63,9 @@ namespace CilLogic.CodeModel.Passes
         }
     }
 
-    public class PassDeadCode : CodePass
+    public class RemoveStaleBranches : CodePass
     {
-        private void RemoveStaleBranches(Method method)
+        public override void Pass(Method method)
         {
             foreach (var bb in method.Blocks)
             {
@@ -75,7 +75,10 @@ namespace CilLogic.CodeModel.Passes
                 bb.Instructions.RemoveRange(index + 1, bb.Instructions.Count - index - 1);
             }
         }
+    }
 
+    public class PassDeadCode : CodePass
+    {
         private void RemoveDeadBlocks(Method method)
         {
             /*bool wasSuccess = true;
@@ -117,41 +120,44 @@ namespace CilLogic.CodeModel.Passes
             }
         }
 
-        private void RemoveDeadJumps(Method method)
+        public class RemoveDeadJumps : CodePass
         {
-            bool wasOk = true;
-            while (wasOk)
+            public override void Pass(Method method)
             {
-                wasOk = false;
-                var jumpBlocks = method.Blocks.Where(b => (b.Instructions.Count == 1) && (b.Instructions[0].Op == Op.Br) && (b != method.Entry)).ToList();
-
-                var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.SelectMany(o => o.Operands).OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
-                foreach (var blk in jumpBlocks)
+                bool wasOk = true;
+                while (wasOk)
                 {
-                    var prevBlocks = nextBlocks.Where(kvp => kvp.Value.Contains(blk)).Select(x => x.Key).ToList();
+                    wasOk = false;
+                    var jumpBlocks = method.Blocks.Where(b => (b.Instructions.Count == 1) && (b.Instructions[0].Op == Op.Br) && (b != method.Entry)).ToList();
 
-                    if (prevBlocks.Count != 1) continue;
-                    if (nextBlocks[blk].Count != 1) continue;
+                    var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.SelectMany(o => o.Operands).OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
+                    foreach (var blk in jumpBlocks)
+                    {
+                        var prevBlocks = nextBlocks.Where(kvp => kvp.Value.Contains(blk)).Select(x => x.Key).ToList();
 
-                    var next = nextBlocks[blk].Single();
+                        if (prevBlocks.Count != 1) continue;
+                        if (nextBlocks[blk].Count != 1) continue;
 
-                    var nextPrevs = nextBlocks.Where(kvp => kvp.Value.Contains(next)).Select(x => x.Key).ToList();
-                    if (nextPrevs.Contains(prevBlocks.Single())) continue;
+                        var next = nextBlocks[blk].Single();
 
-                    if (next.Instructions.Any(i => (i.Op == Op.Phi) && ContainsPhiSource(i, prevBlocks[0]))) continue;
+                        var nextPrevs = nextBlocks.Where(kvp => kvp.Value.Contains(next)).Select(x => x.Key).ToList();
+                        if (nextPrevs.Contains(prevBlocks.Single())) continue;
 
-                    method.ReplaceBlockOperand(blk, new BlockOperand(next));
+                        if (next.Instructions.Any(i => (i.Op == Op.Phi) && ContainsPhiSource(i, prevBlocks[0]))) continue;
 
-                    wasOk = true;
-                    break;
+                        method.ReplaceBlockOperand(blk, new BlockOperand(next));
+
+                        wasOk = true;
+                        break;
+                    }
                 }
             }
-        }
 
-        private bool ContainsPhiSource(Opcode i, BasicBlock basicBlock)
-        {
-            return true;
-            //return i.Operands.OfType<PhiOperand>().Any(x => x.Block == basicBlock);
+            private bool ContainsPhiSource(Opcode i, BasicBlock basicBlock)
+            {
+                return true;
+                //return i.Operands.OfType<PhiOperand>().Any(x => x.Block == basicBlock);
+            }
         }
 
         private void SpliceBlocks(Method method)
@@ -271,7 +277,7 @@ namespace CilLogic.CodeModel.Passes
 
                     var point = blk.Instructions.First();
 
-                    foreach(var rins in toMigrate.SelectMany(x => x.Instructions.Where(o => o.Op != Op.Br)).ToList())
+                    foreach (var rins in toMigrate.SelectMany(x => x.Instructions.Where(o => o.Op != Op.Br)).ToList())
                     {
                         blk.InsertBefore(rins, point);
                         toMigrate.ForEach(f => f.Instructions.Remove(rins));
@@ -282,10 +288,10 @@ namespace CilLogic.CodeModel.Passes
 
         public override void Pass(Method method)
         {
-            RemoveStaleBranches(method);
+            CodePass.DoPass<RemoveStaleBranches>(method, ">");
             CodePass.DoPass<PassDeadValues>(method, ">");
             CodePass.DoPass<CodeHoist>(method, ">");
-            RemoveDeadJumps(method);
+            CodePass.DoPass<RemoveDeadJumps>(method, ">");
             RemoveDeadBlocks(method);
             SpliceBlocks(method);
             CodePass.DoPass<EliminateJumpThrough>(method, ">");
