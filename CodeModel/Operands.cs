@@ -49,6 +49,28 @@ namespace CilLogic.CodeModel
         public ValueOperand(Opcode instruction) : this(instruction.Result, instruction.GetResultType(instruction.Block.Method)) { }
     }
 
+    public class CondValue : Operand
+    {
+        public Operand Condition;
+        public Operand Value;
+
+        public override bool Equals(object obj)
+        {
+            return
+                (obj is CondValue cv) &&
+                EqualityComparer<Operand>.Default.Equals(Condition, cv.Condition) &&
+                EqualityComparer<Operand>.Default.Equals(Value, cv.Value);
+        }
+
+        public override int GetHashCode() { return Value.GetHashCode() ^ Condition.GetHashCode(); }
+
+        public CondValue(Operand condition, Operand value, TypeDef type) : base(type)
+        {
+            Condition = condition;
+            Value = value;
+        }
+    }
+
     public class UndefOperand : Operand
     {
 

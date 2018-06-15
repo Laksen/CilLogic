@@ -6,6 +6,16 @@ using Mono.Cecil;
 
 namespace CilLogic.CodeModel.Passes
 {
+    public class FieldInlinePass : CodePass
+    {
+        public override void Pass(Method method)
+        {
+            foreach(var instr in method.AllInstructions())
+                if (instr.Op == Op.LdFld && (instr[0] is SelfOperand) && (instr[1] is FieldOperand fo) && (fo.OperandType is CecilType<TypeDefinition> ct))
+                    method.ReplaceValue(instr.Result, instr[1]);
+        }
+    }
+
     public class InlinePass : CodePass
     {
         public override void Pass(Method method)

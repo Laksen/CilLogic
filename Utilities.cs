@@ -182,7 +182,7 @@ namespace CilLogic.Utilities
                 if (scope != null && (scope is IGenericInstance git2) && ((scope as TypeReference)?.GetElementType() is IGenericParameterProvider gpp2) && gpp2.GenericParameters.Contains(gp))
                     return git2.GenericArguments[gp.Position].Resolve(outerArgs);
 
-                if (scope.DeclaringType != null)
+                if (scope != null && (scope.DeclaringType != null))
                     return Resolve(type, scope.DeclaringType, outerArgs);
             }
 
@@ -223,7 +223,7 @@ namespace CilLogic.Utilities
             return null;
         }
 
-        public static int GetWidth(this TypeReference type, Method method)
+        public static int GetWidth(this TypeReference type, Method method, MemberReference scope = null)
         {
             var r = type.Resolve();
 
@@ -253,7 +253,12 @@ namespace CilLogic.Utilities
                 return r.Fields.Sum(f => f.GetWidth(method));
 
             if (type.IsPort())
-                return type.GenericParameters[0].Resolve(method?.MethodRef, method?.GenericParams)?.GetWidth(method) ?? 0;
+            {
+                return (type.GenericParameters.Last().Resolve(method?.MethodRef, method?.GenericParams) ?? type.GenericParameters.Last().Resolve(scope, method?.GenericParams))?.GetWidth(method) ?? 0;
+            }
+
+            if (r.IsClass && !r.IsValueType)
+                return 0;
 
             throw new NotSupportedException("Type not detected");
         }

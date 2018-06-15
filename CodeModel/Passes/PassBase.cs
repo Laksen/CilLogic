@@ -80,6 +80,7 @@ namespace CilLogic.CodeModel.Passes
             DoPass<InlinePass>(m);
 
             DoPass<PassDeadCode>(m);
+            DoPass<ReuseDuplicates>(m);
 
             if (ssa) DoPass<SsaPass>(m);
 

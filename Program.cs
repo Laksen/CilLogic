@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -6,6 +7,7 @@ using System.Reflection;
 using System.Text;
 using CilLogic.CodeModel;
 using CilLogic.CodeModel.Passes;
+using CilLogic.Scheduling;
 using CilLogic.Utilities;
 
 using Mono.Cecil;
@@ -30,7 +32,7 @@ namespace CilLogic
         static string DFG(Method m)
         {
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("digraph {");
+            sb.AppendLine("digraph G {");
 
             foreach (var blk in m.AllInstructions())
             {
@@ -76,9 +78,23 @@ namespace CilLogic
             var inp = new Interpreter(execute);
 
             CodePass.Process(inp.Method);
+            CodePass.DoPass<InlineConditions>(inp.Method);
+            CodePass.DoPass<CollapseControlFlow>(inp.Method);
+
+            if (inp.Method.FindConnectedComponents().Any(x => x.Count > 1))
+                throw new Exception("CDFG has loops. Not yet supported");
+
+            CodePass.DoPass<Retype>(inp.Method); // Apply new type information
+
+            CodePass.DoPass<FieldInlinePass>(inp.Method);
+
+            CodePass.Process(inp.Method);
+            
+            CodePass.DoPass<Retype>(inp.Method); // Apply new type information
+            CodePass.DoPass<Schedule>(inp.Method);
 
             File.WriteAllText(@"C:\Users\jepjoh2\Desktop\New Text Document.txt", (inp.Method).ToString());
-            File.WriteAllText(@"C:\Users\jepjoh2\Desktop\Flow.txt", CFG(inp.Method).ToString());
+            File.WriteAllText(@"C:\Users\jepjoh2\Desktop\Flow.txt", DFG(inp.Method).ToString());
 
             Process.Start(new ProcessStartInfo("dot", "-Tpng -otest.png Flow.txt") { WorkingDirectory = @"C:\Users\jepjoh2\Desktop", UseShellExecute = true });
 

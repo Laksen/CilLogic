@@ -51,16 +51,19 @@ namespace CilLogic.CodeModel
         Request, ReadReady, WritePort,
         ReadPort, ReadValid,
         Stall,
-        Mux, InSet,
+        Mux, InSet, NInSet,
         Insert,
+
+        Reg
     }
 
     public class Opcode
     {
         public int Result { get; }
         public Op Op { get; }
-        public List<Operand> Operands { get; }
+        public List<Operand> Operands { get; set; }
         public BasicBlock Block { get; set; }
+        public int Schedule { get; set; }
 
         public static Opcode Nop { get { return new Opcode(0, Op.Nop); } }
 
@@ -71,22 +74,33 @@ namespace CilLogic.CodeModel
         {
             switch (Op)
             {
-                case Op.Call: return new CecilType<TypeDefinition>((this[0] as MethodOperand).Method.MethodReturnType.ReturnType.Resolve((this[0] as MethodOperand).Method, Block.Method.GenericParams), method);
-                case Op.LdFld: return new CecilType<TypeDefinition>((this[1] as FieldOperand).Field.FieldType.Resolve(Block.Method.GenericParams), method);
-                case Op.LdLoc: return (this[1] as TypeOperand).OperandType;
+                case Op.Call:
+                    return new CecilType<TypeDefinition>((this[0] as MethodOperand).Method.MethodReturnType.ReturnType.Resolve((this[0] as MethodOperand).Method, Block.Method.GenericParams), method);
+                case Op.LdFld:
+                    return new CecilType<TypeDefinition>((this[1] as FieldOperand).Field.FieldType.Resolve((this[1] as FieldOperand).Field.FieldType, Block.Method.GenericParams), method, (this[1] as FieldOperand).Field.FieldType);
+                case Op.LdLoc:
+                    return (this[1] as TypeOperand).OperandType;
 
-                case Op.Request:
+                case Op.Reg:
+                case Op.Mov:
+                case Op.Insert:
                 case Op.ReadPort: return this[0].OperandType;
 
+                case Op.Request:
                 case Op.LdArray:
-                    if (this[0] is FieldOperand)
-                        return new CecilType<TypeDefinition>((this[0] as FieldOperand).Field.FieldType.GetElementType().Resolve(Block.Method.GenericParams), method);
-                    else
-                        return TypeDef.Unknown;
+                    {
+                        if (this[0] is FieldOperand fo)
+                            return new CecilType<TypeDefinition>(fo.Field.FieldType.GetElementType().Resolve(fo.Field.FieldType, Block.Method.GenericParams), method);
+                        else if (this[0] is ValueOperand vo1)
+                            return vo1.OperandType;
+                        else
+                            return TypeDef.Unknown;
+                    }
 
                 case Op.ReadValid:
                 case Op.ReadReady:
 
+                case Op.NInSet:
                 case Op.InSet:
                 case Op.Ceq:
                 case Op.Clt:
@@ -364,19 +378,38 @@ namespace CilLogic.CodeModel
         {
             var res = new HashSet<Opcode>();
 
+            bool TryReplace(ref Operand oper)
+            {
+                if ((oper is ValueOperand vo) && vo.Value == value)
+                {
+                    oper = newOperand;
+                    return true;
+                }
+                return false;
+            }
+
             foreach (var instr in Blocks.SelectMany(b => b.Instructions))
             {
                 for (int i = 0; i < instr.Operands.Count; i++)
                 {
-                    if ((instr[i] is ValueOperand vo) && vo.Value == value)
+                    var oper = instr[i];
+                    if (TryReplace(ref oper))
                     {
-                        instr.Operands[i] = newOperand;
+                        instr.Operands[i] = oper;
                         res.Add(instr);
                     }
                     else if ((instr[i] is PhiOperand po) && (po.Value is ValueOperand vo3) && (vo3.Value == value))
                     {
                         instr.Operands[i] = new PhiOperand(po.Block, newOperand);
                         res.Add(instr);
+                    }
+                    else if (instr[i] is CondValue cv)
+                    {
+                        var x = TryReplace(ref cv.Condition);
+                        var y = TryReplace(ref cv.Value);
+
+                        if (x || y)
+                            res.Add(instr);
                     }
                 }
             }

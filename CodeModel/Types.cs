@@ -5,7 +5,7 @@ namespace CilLogic.CodeModel
 {
     public class TypeDef
     {
-        public static TypeDef Void = new TypeDef();
+        public static TypeDef Void => new TypeDef();
         public static TypeDef Unknown => new TypeDef();
 
         public virtual int GetWidth()
@@ -40,10 +40,13 @@ namespace CilLogic.CodeModel
 
     public class CecilType<T> : TypeDef where T : MemberReference
     {
+        public MemberReference MemberRef { get; }
+
         public readonly Method Method;
 
-        public CecilType(T td, Method method)
+        public CecilType(T td, Method method, MemberReference mRef = null)
         {
+            MemberRef = mRef;
             Method = method;
             Type = td;
         }
@@ -53,7 +56,7 @@ namespace CilLogic.CodeModel
             var td = Type as TypeReference;
 
             if (td != null)
-                return td.GetWidth(Method);
+                return td.GetWidth(Method, MemberRef);
             else
                 return 0;
         }
