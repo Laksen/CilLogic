@@ -127,7 +127,7 @@ namespace CilLogic.Tests
         static UInt64 AluOp(UInt64 a, UInt64 b, UInt64 f3, UInt64 f7, UInt64 shiftMask)
         {
             int shift_op = (int)(b & shiftMask);
-            bool hasF7bit = (f7 & 32) != 0;
+            bool hasF7bit = ((f7 >> 5) & 1) != 0;
 
             switch (f3 & 7)
             {
@@ -326,9 +326,15 @@ namespace CilLogic.Tests
 
             UInt32 instr;
 
+            var npc = curr_pc + 4;
+            var xlen = E(misa, 63, 62) == 2 ? 64 : 32;
+            var is64 = xlen == 64;
+
+            var addrSpaceMask = is64 ? 0xFFFF_FFFFUL : 0xFFFF_FFFF_FFFF_FFFF;
+
             if (IsAligned(curr_pc, 32))
             {
-                var instrResp = IMem.Request(curr_pc);
+                var instrResp = IMem.Request(curr_pc & addrSpaceMask);
                 switch (instrResp.Status)
                 {
                     case MemStatus.BusError:
@@ -344,10 +350,6 @@ namespace CilLogic.Tests
                 errorCause = ErrorType.InstrUnaligned;
                 instr = 0;
             }
-
-            var npc = curr_pc + 4;
-            var xlen = E(misa, 63, 62) == 2 ? 64 : 32;
-            var is64 = xlen == 64;
 
             if (UseC)
                 instr = ExpandCompressed(instr);
@@ -393,6 +395,9 @@ namespace CilLogic.Tests
 
             var vrs1 = regs[rs1];
             var vrs2 = regs[rs2];
+
+            if (rs1 == 0) vrs1 = 0;
+            if (rs2 == 0) vrs2 = 0;
 
             var isR = (opcode == Opcode.add) || (opcode == Opcode.addw);
             var isI = (opcode == Opcode.addi) || (opcode == Opcode.addiw) || (opcode == Opcode.ld) || (opcode == Opcode.sys) || (opcode == Opcode.jalr);
@@ -445,7 +450,7 @@ namespace CilLogic.Tests
                         goto case Opcode.addiw;
 
                 case Opcode.addiw:
-                    if (add_check)
+                    if (add_check || !is64)
                     {
                         goto default;
                     }
@@ -489,8 +494,10 @@ namespace CilLogic.Tests
                             case F3_Load.LHU:
                             case F3_Load.LH: addrMask = 1; msb = 15; mask = 0xFFFF; w = MemWidth.H; break;
                             case F3_Load.LWU:
+                                fail = !is64;
+                                goto case F3_Load.LW;
                             case F3_Load.LW: addrMask = 3; msb = 31; mask = 0xFFFF_FFFF; w = MemWidth.W; break;
-                            case F3_Load.LD: addrMask = 7; msb = 63; mask = 0xFFFF_FFFF_FFFF_FFFF; w = MemWidth.D; break;
+                            case F3_Load.LD: addrMask = 7; msb = 63; mask = 0xFFFF_FFFF_FFFF_FFFF; w = MemWidth.D; fail = !is64; break;
                             default: fail = true; break;
                         }
 
@@ -506,7 +513,7 @@ namespace CilLogic.Tests
 
                         var resp = DMem.Request(new MemRequest
                         {
-                            Address = result,
+                            Address = result & addrSpaceMask,
                             IsWrite = false,
                             Width = w,
                             WriteValue = 0
@@ -546,7 +553,7 @@ namespace CilLogic.Tests
                             case F3_Store.SB: w = MemWidth.B; break;
                             case F3_Store.SH: addrMask = 1; w = MemWidth.H; break;
                             case F3_Store.SW: addrMask = 3; w = MemWidth.W; break;
-                            case F3_Store.SD: addrMask = 7; w = MemWidth.D; break;
+                            case F3_Store.SD: addrMask = 7; w = MemWidth.D; fail = !is64; break;
                             default: fail = true; break;
                         }
 
@@ -560,7 +567,7 @@ namespace CilLogic.Tests
 
                         var resp = DMem.Request(new MemRequest
                         {
-                            Address = result,
+                            Address = result & addrSpaceMask,
                             IsWrite = true,
                             Width = w,
                             WriteValue = vrs2

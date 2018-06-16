@@ -21,7 +21,7 @@ namespace CilLogic.CodeModel
     {
         public FieldReference Field { get; }
 
-        public override string ToString() { return $"[{Field.Name}]"; }
+        public override string ToString() { return $"[{Field.Name}][{OperandType.GetWidth()}]"; }
 
         public FieldOperand(FieldReference field, Method method) : base(new CecilType<TypeDefinition>(field.FieldType.Resolve(method.MethodRef, method.GenericParams), method))
         {
@@ -63,6 +63,11 @@ namespace CilLogic.CodeModel
         }
 
         public override int GetHashCode() { return Value.GetHashCode() ^ Condition.GetHashCode(); }
+
+        public override string ToString()
+        {
+            return $"{Condition}?{Value}";
+        }
 
         public CondValue(Operand condition, Operand value, TypeDef type) : base(type)
         {
@@ -128,20 +133,23 @@ namespace CilLogic.CodeModel
         public override bool Equals(object obj)
         {
             if (obj is ConstOperand po)
-                return (Value == po.Value) && (Signed == po.Signed) && (Width == po.Width);
+                return
+                    ((Value == 0) && (po.Value == 0)) || 
+                    ((Value == po.Value) && (Signed == po.Signed) && (Width == po.Width));
             else
                 return false;
         }
 
-        public override int GetHashCode() { return (int)(Value + (UInt64)(Signed ? 1000 : 0 + Width)); }
+        public override int GetHashCode() { return (Value == 0) ? 0 : (int)(Value + (UInt64)(Signed ? 1000 : 0 + Width)); }
 
         public override string ToString() { return Value.ToString(); }
 
         public ConstOperand(UInt64 value) : base(VectorType.Int64) { Value = value; Signed = true; Width = 64; }
         public ConstOperand(int value) : base(VectorType.Int32) { Value = (UInt64)(UInt32)value; Signed = true; Width = 32; }
 
-        public ConstOperand(ulong value, bool signed, int width) : this(value)
+        public ConstOperand(ulong value, bool signed, int width) : base(new VectorType(width, signed))
         {
+            Value = value;
             Signed = signed;
             Width = width;
         }

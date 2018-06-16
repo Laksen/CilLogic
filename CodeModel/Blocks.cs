@@ -51,7 +51,7 @@ namespace CilLogic.CodeModel
         Request, ReadReady, WritePort,
         ReadPort, ReadValid,
         Stall,
-        Mux, InSet, NInSet,
+        Mux, InSet, NInSet, Select,
         Insert,
 
         Reg
@@ -77,7 +77,10 @@ namespace CilLogic.CodeModel
                 case Op.Call:
                     return new CecilType<TypeDefinition>((this[0] as MethodOperand).Method.MethodReturnType.ReturnType.Resolve((this[0] as MethodOperand).Method, Block.Method.GenericParams), method);
                 case Op.LdFld:
-                    return new CecilType<TypeDefinition>((this[1] as FieldOperand).Field.FieldType.Resolve((this[1] as FieldOperand).Field.FieldType, Block.Method.GenericParams), method, (this[1] as FieldOperand).Field.FieldType);
+                    {
+                        var fo = this[1] as FieldOperand;
+                        return new CecilType<TypeDefinition>(fo.Field.FieldType.Resolve(fo.Field.FieldType, Block.Method.GenericParams), method, fo.Field.FieldType);
+                    }
                 case Op.LdLoc:
                     return (this[1] as TypeOperand).OperandType;
 
@@ -87,6 +90,14 @@ namespace CilLogic.CodeModel
                 case Op.ReadPort: return this[0].OperandType;
 
                 case Op.Request:
+                    {
+                        if (this[0] is FieldOperand fo)
+                            return new CecilType<TypeDefinition>(fo.Field.FieldType.Resolve(fo.Field.FieldType, Block.Method.GenericParams), method, fo.Field.FieldType);
+                        else if (this[0] is ValueOperand vo1)
+                            return vo1.OperandType;
+                        else
+                            return TypeDef.Unknown;
+                    }
                 case Op.LdArray:
                     {
                         if (this[0] is FieldOperand fo)
@@ -118,20 +129,22 @@ namespace CilLogic.CodeModel
                         return new VectorType(msb - lsb + 1 + shift, signed != 0);
                     }
 
-                case Op.Phi: return this[0].OperandType;
-                case Op.Mux: return this[1].OperandType;
+                case Op.Phi: return this.Operands.Select(x => x.OperandType).Max();
+                case Op.Mux: return this.Operands.Skip(1).Select(x => x.OperandType).Max();
 
                 case Op.Asr:
                 case Op.Lsr:
                 case Op.Lsl:
-                case Op.And:
                 case Op.Or:
                 case Op.Xor:
                 case Op.Add:
-                case Op.Sub: return this[0].OperandType;
+                case Op.Sub: return this.Operands.Select(x => x.OperandType).Max();
+                case Op.And: return this.Operands.Select(x => x.OperandType).Min();
 
                 case Op.StArray:
                 case Op.StFld: return TypeDef.Void;
+
+                case Op.Select: return this.Operands.Select(x => x.OperandType).Max();
 
                 //default: throw new NotSupportedException($"Invalid Op during type inferrence {Op}.");
                 default: return TypeDef.Unknown;
@@ -339,6 +352,7 @@ namespace CilLogic.CodeModel
         public bool IsSSA { get; internal set; }
 
         private static int ValueCounter = 2;
+        public bool IsRetyped { get; internal set; }
 
         public int GetValue()
         {

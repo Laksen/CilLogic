@@ -19,10 +19,26 @@ namespace CilLogic.CodeModel.Passes
                 {
                     var p = producers[vo.Value];
                     RetypeOp(p);
-                    
+
                     var newT = p.GetResultType(method);
-                    
+
                     return new ValueOperand(vo.Value, newT);
+                }
+                else if (oper is CondValue cv)
+                {
+                    var cond = GetRealType(cv.Condition);
+                    var value = GetRealType(cv.Value);
+
+                    return new CondValue(cond, value, value.OperandType);
+                }
+                else if (oper is ConstOperand co)
+                {
+                    if ((co.Value == 0) && (co.Width > 1))
+                        return new ConstOperand(0, false, 1);
+                    else if ((co.Value == 1) && (co.Width > 1))
+                        return new ConstOperand(1, false, 1);
+                    else
+                        return co;
                 }
                 else
                     return oper;
@@ -39,6 +55,8 @@ namespace CilLogic.CodeModel.Passes
             }
 
             method.AllInstructions().ForEach(RetypeOp);
+
+            method.IsRetyped = true;
         }
     }
 }

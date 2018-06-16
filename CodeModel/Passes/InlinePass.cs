@@ -11,8 +11,14 @@ namespace CilLogic.CodeModel.Passes
         public override void Pass(Method method)
         {
             foreach(var instr in method.AllInstructions())
-                if (instr.Op == Op.LdFld && (instr[0] is SelfOperand) && (instr[1] is FieldOperand fo) && (fo.OperandType is CecilType<TypeDefinition> ct))
-                    method.ReplaceValue(instr.Result, instr[1]);
+                if ((instr.Op == Op.LdFld) &&
+                    (instr[0] is SelfOperand) &&
+                    (instr[1] is FieldOperand fo) &&
+                    (fo.OperandType is CecilType<TypeDefinition> ct) )
+                    {
+                        if (ct.Type.IsPort() || ct.Type.IsArray)
+                            method.ReplaceValue(instr.Result, instr[1]);
+                    }
         }
     }
 

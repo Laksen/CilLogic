@@ -186,17 +186,7 @@ namespace CilLogic.CodeModel.Passes
                 conditions[b] = b.Prepend(new Opcode(method.GetValue(), Op.Or, conds.Values.Select(x => new ValueOperand(x, VectorType.UInt1)).ToArray())).Result;
 
                 foreach (var phi in b.Instructions.Where(i => i.Op == Op.Phi).ToList())
-                {
-                    var res = b.Prepend(new Opcode(method.GetValue(), Op.Mov, (phi.Operands[0] as PhiOperand).Value));
-
-                    for (int i = 1; i < phi.Operands.Count; i++)
-                    {
-                        var po = phi.Operands[i] as PhiOperand;
-                        res = b.Prepend(new Opcode(method.GetValue(), Op.Mux, new ValueOperand(conds[po.Block], TypeDef.Unknown), new ValueOperand(res), po.Value));
-                    }
-
-                    b.Replace(phi, new Opcode(phi.Result, Op.Mov, new ValueOperand(res)));
-                }
+                    b.Replace(phi, new Opcode(phi.Result, Op.Select, phi.Operands.OfType<PhiOperand>().Select(o => new CondValue(new ValueOperand(conds[o.Block], VectorType.UInt1), o.Value, o.Value.OperandType)).ToArray()));
             }
 
             while (toCondition.Count > 0)
@@ -210,6 +200,9 @@ namespace CilLogic.CodeModel.Passes
 
                     case Op.StFld:
                     case Op.StArray:
+                    
+                    case Op.LdArray:
+                    case Op.LdFld:
 
                     case Op.Request:
 

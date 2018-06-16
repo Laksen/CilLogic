@@ -91,6 +91,9 @@ namespace CilLogic
             CodePass.Process(inp.Method);
             
             CodePass.DoPass<Retype>(inp.Method); // Apply new type information
+            CodePass.Process(inp.Method);
+            /*CodePass.DoPass<MuxToSelect>(inp.Method);
+            CodePass.Process(inp.Method);*/
             CodePass.DoPass<Schedule>(inp.Method);
 
             File.WriteAllText(@"C:\Users\jepjoh2\Desktop\New Text Document.txt", (inp.Method).ToString());

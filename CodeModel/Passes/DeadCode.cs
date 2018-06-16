@@ -16,7 +16,8 @@ namespace CilLogic.CodeModel.Passes
 
             var instrProviders = instrProvides.Where(kvp => kvp.Value != 0).ToDictionary(i => i.Value, i => i.Key);
             var usages = instrs.ToDictionary(i => i, i => i.Operands.OfType<ValueOperand>().Select(v => v.Value).Concat(
-                i.Operands.OfType<PhiOperand>().Select(v => v.Value).OfType<ValueOperand>().Select(v => v.Value)).Distinct().ToList());
+                i.Operands.OfType<PhiOperand>().Select(v => v.Value).OfType<ValueOperand>().Select(v => v.Value)).Concat(
+                i.Operands.OfType<CondValue>().SelectMany(v => new[] { v.Condition, v.Value }).OfType<ValueOperand>().Select(v => v.Value)).Distinct().ToList());
 
             var instrUsers = instrs.ToDictionary(i => i, i => new HashSet<Opcode>());
             foreach (var usage in usages)
@@ -38,22 +39,33 @@ namespace CilLogic.CodeModel.Passes
 
                     if (instr.Result != 0) instrProviders.Remove(instr.Result);
 
-                    foreach (var oper in instr.Operands)
+                    foreach (var oper1 in instr.Operands)
                     {
-                        var op = 0;
-                        if ((oper is PhiOperand po) && (po.Value is ValueOperand vo))
-                            op = vo.Value;
-                        else if (oper is ValueOperand vo2)
-                            op = vo2.Value;
-
-                        if (op != 0)
+                        void Decrement(Operand oper2)
                         {
-                            if (instrProviders.ContainsKey(op))
+                            if (oper2 is PhiOperand po)
+                                Decrement(po.Value);
+                            else if (oper2 is CondValue cv)
                             {
-                                var provider = instrProviders[op];
-                                useCount[provider]--;
+                                Decrement(cv.Condition);
+                                Decrement(cv.Value);
+                            }
+                            else if (oper2 is ValueOperand vo2)
+                            {
+                                var op = vo2.Value;
+
+                                if (op != 0)
+                                {
+                                    if (instrProviders.ContainsKey(op))
+                                    {
+                                        var provider = instrProviders[op];
+                                        useCount[provider]--;
+                                    }
+                                }
                             }
                         }
+
+                        Decrement(oper1);
                     }
 
                     useCount.Remove(instr);

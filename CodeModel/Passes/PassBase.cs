@@ -25,7 +25,7 @@ namespace CilLogic.CodeModel.Passes
             new T().Pass(m);
             s.Stop();
 
-            var name = tag + typeof(T).Name;
+            var name = typeof(T).Name;
 
             if (!PassTime.ContainsKey(name))
                 PassTime[name] = new TimeSpan(0);
@@ -88,6 +88,7 @@ namespace CilLogic.CodeModel.Passes
             {
                 DoPass<PassPeephole>(m);
                 DoPass<PassDeadCode>(m);
+                DoPass<ReuseDuplicates>(m);
             }
         }
     }

@@ -263,6 +263,40 @@ namespace CilLogic.Utilities
             throw new NotSupportedException("Type not detected");
         }
 
+        public static bool GetSign(this TypeReference type, Method method, MemberReference scope = null)
+        {
+            var r = type.Resolve();
+
+            if (r == r.Module.TypeSystem.Boolean) return false;
+
+            if (r == r.Module.TypeSystem.SByte) return true;
+            if (r == r.Module.TypeSystem.Int16) return true;
+            if (r == r.Module.TypeSystem.Int32) return true;
+            if (r == r.Module.TypeSystem.Int64) return true;
+
+            if (r == r.Module.TypeSystem.Byte) return false;
+            if (r == r.Module.TypeSystem.UInt16) return false;
+            if (r == r.Module.TypeSystem.UInt32) return false;
+            if (r == r.Module.TypeSystem.UInt64) return false;
+
+            if (r.IsEnum)
+            {
+                return false;
+            }
+            else if (r.IsValueType && r.IsClass && !r.IsPrimitive)
+                return false;
+
+            if (type.IsPort())
+            {
+                return (type.GenericParameters.Last().Resolve(method?.MethodRef, method?.GenericParams) ?? type.GenericParameters.Last().Resolve(scope, method?.GenericParams))?.GetSign(method) ?? false;
+            }
+
+            if (r.IsClass && !r.IsValueType)
+                return false;
+
+            throw new NotSupportedException("Type not detected");
+        }
+
         public static int GetWidth(this FieldReference field, Method method)
         {
             var r = field.Resolve();
