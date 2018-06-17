@@ -138,8 +138,8 @@ namespace CilLogic.CodeModel
                 case Op.Or:
                 case Op.Xor:
                 case Op.Add:
-                case Op.Sub: return this.Operands.Select(x => x.OperandType).Max();
-                case Op.And: return this.Operands.Select(x => x.OperandType).Min();
+                case Op.Sub:
+                case Op.And: return this.Operands.Select(x => x.OperandType).Max();
 
                 case Op.StArray:
                 case Op.StFld: return TypeDef.Void;

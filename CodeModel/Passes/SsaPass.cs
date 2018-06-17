@@ -62,7 +62,7 @@ namespace CilLogic.CodeModel.Passes
                                 var tw = fref.Resolve().GetInfo(fref.DeclaringType.Resolve(), method);
 
                                 var load = new Opcode(method.GetValue(), Op.LdLoc, locRef.Location);
-                                var insert = new Opcode(method.GetValue(), Op.Insert, new ValueOperand(load.Result, new CecilType<TypeDefinition>(fref.DeclaringType.Resolve(method.GenericParams), method)), tw.Msb, tw.Lsb, value);
+                                var insert = new Opcode(method.GetValue(), Op.Insert, new TypeOperand(fref.DeclaringType, method), new ValueOperand(load.Result, new CecilType<TypeDefinition>(fref.DeclaringType.Resolve(method.GenericParams), method)), tw.Msb, tw.Lsb, value);
                                 var store = new Opcode(0, Op.StLoc, locRef.Location, new ValueOperand(insert.Result, new CecilType<TypeDefinition>(fref.DeclaringType.Resolve(method.GenericParams), method)));
 
                                 op.Block.InsertBefore(load, op);
