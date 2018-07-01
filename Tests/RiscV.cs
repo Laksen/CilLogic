@@ -17,6 +17,9 @@ namespace CilLogic.Tests
         [PortPrefix("DMem")]
         public IRequest<MemRequest, MemResponse> DMem;
 
+        [PortPrefix("rvfi")]
+        public IOutput<RVFIPacket> RVFI;
+
         private UInt64[] regs;
         private UInt64 pc = 0;
         private PrivilegeLevel privilege = PrivilegeLevel.M;
@@ -347,6 +350,9 @@ namespace CilLogic.Tests
             var curr_pc = pc;
             var curr_priv = privilege;
 
+            bool wasTrap = false;
+            bool wasIntr = false;
+
             UInt64 tval = curr_pc;
             var errorCause = ErrorType.IllegalInstruction;
             var fetchError = true;
@@ -471,6 +477,12 @@ namespace CilLogic.Tests
             var pc_imm = opcode == Opcode.jalr ? result : imm;
             var calc_pc = curr_pc + pc_imm;
 
+            UInt64 mem_addr = 0;
+            UInt64 mem_rdata = 0;
+            UInt64 mem_wdata = 0;
+            int mem_rmask = 0;
+            int mem_wmask = 0;
+
             switch (opcode)
             {
                 case Opcode.add:
@@ -571,6 +583,10 @@ namespace CilLogic.Tests
                             goto default;
                         }
 
+                        mem_addr = result & addrSpaceMask;
+                        mem_rdata = resp.ReadValue;
+                        mem_rmask = (int)((1UL << (int)addrMask) - 1);
+
                         result = resp.ReadValue;
 
                         if (signed)
@@ -612,6 +628,10 @@ namespace CilLogic.Tests
                             Width = w,
                             WriteValue = vrs2
                         });
+
+                        mem_addr = result & addrSpaceMask;
+                        mem_wdata = vrs2;
+                        mem_wmask = (int)((1UL << (int)addrMask) - 1);
 
                         if (resp.Status != MemStatus.Ok)
                         {
@@ -710,12 +730,43 @@ namespace CilLogic.Tests
                         privilege = PrivilegeLevel.M;
                         pc = CalcVector(mtvec, isTrap, errorCause);
 
+                        wasTrap = true;
+
                         // Failed :(
-                        return;
+                        rd = 0;
+                        break;
                     }
             }
 
             if (rd != 0) regs[rd] = result;
+
+            RVFI.WriteValue(new RVFIPacket
+            {
+                valid = true,
+                order = RVFI_Order++,
+                insn = instr,
+                trap = wasTrap,
+                halt = false,
+                intr = wasTrap && wasIntr,
+
+                rs1_addr = (int)rs1,
+                rs2_addr = (int)rs2,
+                rs1_rdata = vrs1,
+                rs2_rdata = vrs2,
+
+                rd_addr = (int)rd,
+                rd_rdata = result,
+
+                pc_rdata = curr_pc,
+                pc_wdata = pc,
+
+                mem_addr = mem_addr,
+                mem_rdata = mem_rdata,
+                mem_rmask = mem_rmask,
+                mem_wdata = mem_wdata,
+                mem_wmask = mem_wmask
+            });
+
         }
 
         private ulong CalcVector(ulong mtvec, bool isTrap, ErrorType errorCause)
@@ -732,6 +783,8 @@ namespace CilLogic.Tests
                 case 1: return vecBase + offset;
             }
         }
+        
+        UInt64 RVFI_Order;
 
         public RiscV()
         {
@@ -754,6 +807,10 @@ namespace CilLogic.Tests
         public int rs2_addr;
         public UInt64 rs1_rdata;
         public UInt64 rs2_rdata;
+
+        [BitWidth(5)]
+        public int rd_addr;
+        public UInt64 rd_rdata;
 
         public UInt64 pc_rdata;
         public UInt64 pc_wdata;

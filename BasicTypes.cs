@@ -66,11 +66,16 @@ namespace CilLogic.Types
 
     public class PortPrefixAttribute : Attribute
     {
-        public string Prefix { get; }
+        public readonly string Prefix;
 
-        public PortPrefixAttribute(string prefix)
+        public readonly string OutputPrefix;
+        public readonly string InputPrefix;
+
+        public PortPrefixAttribute(string prefix, string outputPrefix = "o", string inputPrefix = "i")
         {
             Prefix = prefix;
+            OutputPrefix = outputPrefix;
+            InputPrefix = inputPrefix;
         }
     }
 

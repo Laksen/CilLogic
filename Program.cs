@@ -96,7 +96,7 @@ namespace CilLogic
 
             new Schedule { Settings = new ScheduleSettings { ArrayDelay = 0, RegDelay = 0, RequestDelay = 0 } }.Pass(inp.Method);
 
-            new VerilogPass { Settings = new VerilogSettings { Filename = @"C:\Users\jepjoh2\Desktop\New Text Document.txt" } }.Pass(inp.Method);
+            new VerilogPass { Settings = new VerilogSettings { Filename = @"output/New Text Document.txt" } }.Pass(inp.Method);
 
             /*File.WriteAllText(@"C:\Users\jepjoh2\Desktop\New Text Document.txt", (inp.Method).ToString());
             File.WriteAllText(@"C:\Users\jepjoh2\Desktop\Flow.txt", DFG(inp.Method).ToString());

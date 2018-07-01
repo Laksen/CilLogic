@@ -27,6 +27,18 @@ namespace CilLogic.CodeModel
         {
             this.Field = field;
         }
+
+        public override int GetHashCode()
+        {
+            return Field.GetHashCode();
+        }
+
+        public override bool Equals(object obj)
+        {
+            return
+                (obj is FieldOperand fo) &&
+                EqualityComparer<FieldReference>.Default.Equals(Field, fo.Field);
+        }
     }
 
     public class ValueOperand : Operand

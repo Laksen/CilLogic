@@ -69,7 +69,7 @@ namespace CilLogic.Utilities
                 if (td.FullName == t.FullName)
                     res = true;
 
-                if (td.Interfaces.Any(i => IsPort(i.InterfaceType)))
+                if (td.Interfaces.Any(i => IsType(i.InterfaceType, t)))
                     res = true;
 
                 PortDict[key] = res;
