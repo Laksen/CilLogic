@@ -646,6 +646,12 @@ namespace CilLogic.CodeModel.Passes
                                     }
                                     break;
                                 }
+                            case Op.Mux:
+                                if ((ins[0] is ConstOperand co4) && (co4.Value != 0))
+                                    o = ins[2];
+                                else
+                                    o = ins[1];
+                                break;
 
                             default:
                                 Console.WriteLine(ins);

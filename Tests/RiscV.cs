@@ -18,15 +18,15 @@ namespace CilLogic.Tests
         public IRequest<MemRequest, MemResponse> DMem;
 
         private UInt64[] regs;
-
         private UInt64 pc = 0;
+        private PrivilegeLevel privilege = PrivilegeLevel.M;
 
         public const UInt64 mvendorid = 0;
         public const UInt64 marchid = 0;
         public const UInt64 mimpid = 0;
         public const UInt64 mhartid = 0;
-        public UInt64 mstatus;
-        public UInt64 misa;
+        public UInt64 mstatus = 0x0000_0022_0000_0000;
+        public const UInt64 misa = 0x8000_0000_0000_0000;
         public const UInt64 medeleg = 0;
         public const UInt64 mideleg = 0;
         public UInt64 mie;
@@ -40,9 +40,7 @@ namespace CilLogic.Tests
         public UInt64 mcycle;
         public UInt64 minstret;
 
-        public UInt64 MPP { get { return E(mstatus, 12, 11); } }
-
-        public CSRResult WriteRegister(UInt64 addr, UInt64 clearMask, UInt64 setMask, bool write, bool read)
+        public CSRResult WriteRegister(UInt64 addr, UInt64 clearMask, UInt64 setMask, bool write, bool read, bool is64)
         {
             UInt64 res = 0;
 
@@ -86,9 +84,22 @@ namespace CilLogic.Tests
                 if ((addr & 0xFF0) == 0x300)
                     switch (addr & 0xF)
                     {
-                        case 0x0: mstatus = res; break;
-                        case 0x1: misa = res; break;
-                        case 0x4: mie = res; break;
+                        case 0x0:
+                            {
+                                if (E(res, 12, 11) == 2)
+                                    ok = false;
+                                else
+                                    mstatus = (mstatus & 0x3FFF_FFFF_FF80_0644UL) | (res & ~0x3FFF_FFFF_FF80_0644UL);
+                                break;
+                            }
+                        case 0x1:
+                            {
+                                //misa = res;
+                                break;
+                            }
+                        case 0x4:
+                            mie = (mie & 0x444) | (res & ~0x444UL);
+                            break;
                         case 0x5: mtvec = res; break;
                         case 0x6: mcounteren = res; break;
                         default: ok = false; break;
@@ -100,7 +111,7 @@ namespace CilLogic.Tests
                         case 0x1: mepc = res; break;
                         case 0x2: mcause = res; break;
                         case 0x3: mtval = res; break;
-                        case 0x4: mip = res; break;
+                        case 0x4: mip = res & 0xBBBUL; break;
                         default: ok = false; break;
                     }
                 else
@@ -334,10 +345,12 @@ namespace CilLogic.Tests
         public override void Execute()
         {
             var curr_pc = pc;
+            var curr_priv = privilege;
 
             UInt64 tval = curr_pc;
             var errorCause = ErrorType.IllegalInstruction;
             var fetchError = true;
+            bool isTrap = true;
 
             UInt32 instr;
 
@@ -629,7 +642,7 @@ namespace CilLogic.Tests
                         {
                             if ((rd == 0) && (rs1 == 0) && (E(instr, 31, 21) == 0))
                             {
-                                int CurrentPP = (int)MPP;
+                                int CurrentPP = (int)curr_priv;
                                 errorCause =
                                     (E(instr, 20, 20) == 0) ? (ErrorType.ECallU + CurrentPP) :
                                     ErrorType.BreakPoint;
@@ -669,7 +682,7 @@ namespace CilLogic.Tests
 
                             var csr = imm;
 
-                            var res = WriteRegister(csr, cMask, sMask, doWrite, rd != 0);
+                            var res = WriteRegister(csr, cMask, sMask, doWrite, rd != 0, is64);
 
                             if (res.Ok)
                                 result = res.OldValue;
@@ -685,12 +698,17 @@ namespace CilLogic.Tests
 
                 default:
                     {
+                        var curr_mstatus = mstatus;
+
+                        mstatus = (curr_mstatus & 0xFFFF_FFFF_FFFF_E777) |
+                            (((UInt64)curr_priv) << 11) |
+                            (E(curr_mstatus, 3, 3) << 7);
                         mcause = (UInt64)errorCause;
-                        Trap();
                         mepc = curr_pc;
                         mtval = tval;
 
-                        pc = mtvec;
+                        privilege = PrivilegeLevel.M;
+                        pc = CalcVector(mtvec, isTrap, errorCause);
 
                         // Failed :(
                         return;
@@ -698,6 +716,21 @@ namespace CilLogic.Tests
             }
 
             if (rd != 0) regs[rd] = result;
+        }
+
+        private ulong CalcVector(ulong mtvec, bool isTrap, ErrorType errorCause)
+        {
+            var offset = isTrap ? ((UInt64)errorCause) << 2 : 0;
+
+            var vecBase = (mtval >> 2) << 2;
+            var type = E(mtval, 1, 0);
+
+            switch (type)
+            {
+                default:
+                case 0: return vecBase;
+                case 1: return vecBase + offset;
+            }
         }
 
         public RiscV()
@@ -772,6 +805,13 @@ namespace CilLogic.Tests
         D
     }
 
+    public enum PrivilegeLevel
+    {
+        U = 0,
+        S = 1,
+        M = 3
+    }
+
     public struct CSRResult
     {
         public bool Ok;
@@ -813,9 +853,15 @@ namespace CilLogic.Tests
 
         sys = 0x1C,
 
+
         // RV64I
         addiw = 0x06,
         addw = 0x0E,
+
+        // RV32M
+        mul = 0x0c,
+        // RV64M
+        mulw = 0x0E,
 
         // RV32D
         fld = 0x01,

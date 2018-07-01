@@ -335,6 +335,7 @@ namespace CilLogic.CodeModel
 
                     case Code.Ldc_I4_S: stack.Push((int)(sbyte)ins.Operand); break;
                     case Code.Ldc_I4: stack.Push((int)ins.Operand); break;
+                    case Code.Ldc_I8: stack.Push(new ConstOperand((UInt64)(Int64)ins.Operand, true, 64)); break;
                     case Code.Ldc_I4_M1: stack.Push(-1); break;
                     case Code.Ldc_I4_0: stack.Push(0); break;
                     case Code.Ldc_I4_1: stack.Push(1); break;
