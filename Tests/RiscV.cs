@@ -20,15 +20,18 @@ namespace CilLogic.Tests
         [PortPrefix("rvfi")]
         public IOutput<RVFIPacket> RVFI;
 
+        [ArrayLength(32)]
         private UInt64[] regs;
-        private UInt64 pc = 0;
+        [ResetValue(0)]
+        private UInt64 pc;
         private PrivilegeLevel privilege = PrivilegeLevel.M;
 
         public const UInt64 mvendorid = 0;
         public const UInt64 marchid = 0;
         public const UInt64 mimpid = 0;
         public const UInt64 mhartid = 0;
-        public UInt64 mstatus = 0x0000_0022_0000_0000;
+        [ResetValue(0x0000_0022_0000_0000)]
+        public UInt64 mstatus;
         public const UInt64 misa = 0x8000_0000_0000_0000;
         public const UInt64 medeleg = 0;
         public const UInt64 mideleg = 0;
@@ -356,7 +359,6 @@ namespace CilLogic.Tests
             UInt64 tval = curr_pc;
             var errorCause = ErrorType.IllegalInstruction;
             var fetchError = true;
-            bool isTrap = true;
 
             UInt32 instr;
 
@@ -728,7 +730,7 @@ namespace CilLogic.Tests
                         mtval = tval;
 
                         privilege = PrivilegeLevel.M;
-                        pc = CalcVector(mtvec, isTrap, errorCause);
+                        pc = CalcVector(mtvec, wasIntr, errorCause);
 
                         wasTrap = true;
 
@@ -766,12 +768,11 @@ namespace CilLogic.Tests
                 mem_wdata = mem_wdata,
                 mem_wmask = mem_wmask
             });
-
         }
 
-        private ulong CalcVector(ulong mtvec, bool isTrap, ErrorType errorCause)
+        private ulong CalcVector(ulong mtvec, bool isInterrupt, ErrorType errorCause)
         {
-            var offset = isTrap ? ((UInt64)errorCause) << 2 : 0;
+            var offset = isInterrupt ? 0 : (((UInt64)errorCause) << 2);
 
             var vecBase = (mtval >> 2) << 2;
             var type = E(mtval, 1, 0);
@@ -783,7 +784,8 @@ namespace CilLogic.Tests
                 case 1: return vecBase + offset;
             }
         }
-        
+
+        [ResetValue(0)]
         UInt64 RVFI_Order;
 
         public RiscV()
@@ -847,10 +849,10 @@ namespace CilLogic.Tests
     [BitWidth(2)]
     public enum MemStatus
     {
-        Ok,
-        DeviceError,
-        BusError,
-        PrivilegeError
+        Ok = 0,
+        DeviceError = 1,
+        BusError = 2,
+        PrivilegeError = 3
     }
 
     [BitWidth(2)]
