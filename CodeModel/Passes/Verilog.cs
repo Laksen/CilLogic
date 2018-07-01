@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using CilLogic.Types;
 using CilLogic.Utilities;
 using Mono.Cecil;
 
@@ -11,6 +12,50 @@ namespace CilLogic.CodeModel.Passes
     public class VerilogSettings
     {
         public string Filename = "out.v";
+    }
+
+    public class WriteConsolidationPass : CodePass
+    {
+        public override void Pass(Method method)
+        {
+            var addedSelect = false;
+
+            var fieldStores = method.AllInstructions().Where(x => x.Op == Op.StFld).ToList();
+            foreach (var multiWriters in fieldStores.GroupBy(x => x[1]).Where(x => x.Count() > 1))
+            {
+                var old = multiWriters.ToList();
+
+                var condition = method.Entry.Prepend(new Opcode(method.GetValue(), Op.Or, old.Select(x => x[3]).ToArray()));
+                var value = method.Entry.Prepend(new Opcode(method.GetValue(), Op.Select, old.Select(x => new CondValue(x[3], x[2], x[2].OperandType)).ToArray()));
+
+                method.Entry.Prepend(new Opcode(0, Op.StFld, old.First()[0], old.First()[1], new ValueOperand(value), new ValueOperand(condition)));
+                old.ForEach(x => x.Block.Replace(x, new Opcode(0, Op.Nop)));
+
+                addedSelect = true;
+            }
+
+            var allRequests = method.AllInstructions().Where(x => x.Op == Op.Request).ToList();
+            foreach (var requests in allRequests.GroupBy(x => x[0]).Where(x => x.Count() > 1))
+            {
+                var old = requests.ToList();
+
+                var condition = method.Entry.Prepend(new Opcode(method.GetValue(), Op.Or, old.Select(x => x[2]).ToArray()));
+                var value = method.Entry.Prepend(new Opcode(method.GetValue(), Op.Select, old.Select(x => new CondValue(x[2], x[1], x[1].OperandType)).ToArray()));
+
+                var req = new Opcode(method.GetValue(), Op.Request, old.First()[0], new ValueOperand(value), new ValueOperand(condition));
+                method.Entry.Prepend(req);
+                old.ForEach(x => x.Block.Replace(x, new Opcode(x.Result, Op.Mov, new ValueOperand(req))));
+
+                addedSelect = true;
+            }
+
+            if (addedSelect)
+            {
+                CodePass.DoPass<PassDeadCode>(method);
+                CodePass.DoPass<PassPeephole>(method);
+                CodePass.DoPass<PassDeadCode>(method);
+            }
+        }
     }
 
     public class VerilogPass : CodePass
@@ -33,11 +78,11 @@ namespace CilLogic.CodeModel.Passes
             else
             {
                 foreach (var portField in arg.Fields)
-                    yield return new PortDefinition { name = prefix + portField.Name, input = inDir, registered = false, signed = portField.FieldType.GetSign(method, arg), width = portField.FieldType.GetWidth(method, arg) };
+                    yield return new PortDefinition { name = prefix + portField.Name, input = inDir, registered = false, signed = portField.FieldType.GetSign(method, arg), width = portField.GetWidth(method) };
             }
 
-            yield return new PortDefinition { name = prefix + "valid", input =  inDir, registered = false, signed = false, width = 1, is_valid = true };
-            yield return new PortDefinition { name = prefix + "ready", input = !inDir, registered = false, signed = false, width = 1, is_ready = true };
+            //yield return new PortDefinition { name = prefix + "valid", input = inDir, registered = false, signed = false, width = 1, is_valid = true };
+            //yield return new PortDefinition { name = prefix + "ready", input = !inDir, registered = false, signed = false, width = 1, is_ready = true };
         }
 
         private IEnumerable<PortDefinition> GetPorts(Method method, FieldDefinition field)
@@ -77,7 +122,7 @@ namespace CilLogic.CodeModel.Passes
             string PortToString(PortDefinition r)
             {
                 var dir = r.input ? "input" : "output";
-                var width = r.width > 1 ? $"[{r.width - 1}:0}}] " : "";
+                var width = r.width > 1 ? $"[{r.width - 1}:0] " : "";
                 var reg = !r.input && r.registered ? "reg " : "";
 
                 return $"{dir} {reg}{width}{r.name}";
@@ -93,6 +138,8 @@ namespace CilLogic.CodeModel.Passes
 
         public override void Pass(Method method)
         {
+            CodePass.DoPass<WriteConsolidationPass>(method, ">");
+
             string getWidth(int width)
             {
                 if (width <= 1)
@@ -124,7 +171,23 @@ namespace CilLogic.CodeModel.Passes
             {
                 if (fld.Field.FieldType.IsPort()) continue;
 
-                sb.AppendLine(string.Format(" field: {0}", fld));
+                var fd = fld.Field.Resolve();
+
+                var width = fld.OperandType.GetWidth();
+
+                var resetValue = " = 0";
+                var arrayLength = "";
+
+                if (fd.CustomAttributes.Where(ca => ca.AttributeType.FullName == typeof(ResetValueAttribute).FullName).Any())
+                    resetValue = " = " + fd.CustomAttributes.Where(ca => ca.AttributeType.FullName == typeof(ResetValueAttribute).FullName).First().ConstructorArguments[0].Value.ToString();
+
+                if (fd.CustomAttributes.Where(ca => ca.AttributeType.FullName == typeof(ArrayLengthAttribute).FullName).Any())
+                {
+                    arrayLength = string.Format(" [0:{0}-1]", fd.CustomAttributes.Where(ca => ca.AttributeType.FullName == typeof(ArrayLengthAttribute).FullName).First().ConstructorArguments[0].Value.ToString());
+                    resetValue = "";
+                }
+
+                sb.AppendLine($"    reg [{width - 1}:0] {fld.Field.Name}{arrayLength}{resetValue};");
             }
 
             // Define storage for results
@@ -144,29 +207,45 @@ namespace CilLogic.CodeModel.Passes
             {
                 string res = "";
                 string cond = "";
+                bool clocked = false;
 
                 switch (op.Op)
                 {
-                    case Op.Return: break;
+                    case Op.Return: continue;
 
                     case Op.Slice:
-                        res = string.Format("{0}[{1}:{2}] << {3}", Get(op[0]), op[1], op[2], op[3]);
+                        var shift = Get(op[3]) != "0" ? " << " + op[3] : "";
+                        res = string.Format("{0}[{1}:{2}]{3}", Get(op[0]), op[1], op[2], shift);
                         break;
 
+                    case Op.Mov: res = string.Format("{0}", Get(op[0])); break;
+
                     case Op.Add: res = string.Format("{0} + {1}", Get(op[0]), Get(op[1])); break;
-                    case Op.Sub: res = string.Format("{0} + {1}", Get(op[0]), Get(op[1])); break;
+                    case Op.Sub: res = string.Format("{0} - {1}", Get(op[0]), Get(op[1])); break;
+
+                    case Op.Lsl: res = string.Format("{0} << {1}", Get(op[0]), Get(op[1])); break;
+                    case Op.Asr: res = string.Format("$signed({0}) >> {1}", Get(op[0]), Get(op[1])); break;
+                    case Op.Lsr: res = string.Format("$unsigned({0}) >> {1}", Get(op[0]), Get(op[1])); break;
 
                     case Op.And: res = string.Join("&", op.Operands.Select(Get)); break;
                     case Op.Or: res = string.Join("|", op.Operands.Select(Get)); break;
                     case Op.Xor: res = string.Join("^", op.Operands.Select(Get)); break;
 
-                    case Op.Mux: res = string.Format("{0} ? {1} : {2}", Get(op[0]), Get(op[1]), Get(op[2])); break;
+                    case Op.Mux: res = string.Format("{0} ? {2} : {1}", Get(op[0]), Get(op[1]), Get(op[2])); break;
 
                     case Op.LdFld: res = Get(op[1]); break;
-                    case Op.StFld: res = Get(op[1]) + " <= " + Get(op[2]); cond = Get(op[3]); break;
-
                     case Op.LdArray: res = Get(op[0]) + "[" + Get(op[1]) + "]"; break;
-                    case Op.StArray: res = string.Format("{0}[{1}] <= {2}", op[0], op[1], op[2]); cond = Get(op[3]); break;
+
+                    case Op.StFld:
+                        res = Get(op[1]) + " <= " + Get(op[2]);
+                        clocked = true;
+                        cond = Get(op[3]);
+                        break;
+                    case Op.StArray:
+                        res = string.Format("{0}[{1}] <= {2}", Get(op[0]), Get(op[1]), Get(op[2]));
+                        clocked = true;
+                        cond = Get(op[3]);
+                        break;
 
                     case Op.Select:
                         res = string.Join(":", op.Operands.Select(Get));
@@ -174,29 +253,75 @@ namespace CilLogic.CodeModel.Passes
                             res += "0";
                         break;
 
-                    case Op.InSet: 
+                    case Op.InSet:
                         {
                             var src = Get(op[0]);
                             res = string.Join(" || ", op.Operands.Skip(1).Select(x => $"({src} == {Get(x)})"));
                             break;
                         }
-                    case Op.NInSet: 
+                    case Op.NInSet:
                         {
                             var src = Get(op[0]);
                             res = string.Join(" && ", op.Operands.Skip(1).Select(x => $"({src} != {Get(x)})"));
                             break;
                         }
+                    case Op.Insert:
+                        {
+                            var width = op.GetResultType(method).GetWidth();
 
+                            var m = (int)(op[2] as ConstOperand).Value;
+                            var l = (int)(op[3] as ConstOperand).Value;
+
+                            var origin = Get(op[1]);
+
+                            var v = Get(op[4]);
+
+                            sb.AppendLine(string.Format("    wire [{0}:0] tmp{1} = {2};", width - 1, op.Result, origin));
+
+                            if (l > 0)
+                                sb.AppendLine(string.Format("    assign res{0}[{1}:0] = tmp{0}[{1}:0];", op.Result, l - 1));
+                            if (m < width - 1)
+                                sb.AppendLine(string.Format("    assign res{0}[{1}:{2}] = tmp{0}[{1}:{2}];", op.Result, width - 1, m + 1));
+                            sb.AppendLine(string.Format("    assign res{0}[{1}:{2}] = {3};", op.Result, m, l, v));
+
+                            continue;
+                        }
+
+                    case Op.Ceq: res = string.Format("{0} == {1}", Get(op[0]), Get(op[1])); break;
                     case Op.Clt: res = string.Format("$signed({0}) < $signed({1})", Get(op[0]), Get(op[1])); break;
                     case Op.Cltu: res = string.Format("$unsigned({0}) < $unsigned({1})", Get(op[0]), Get(op[1])); break;
 
+                    case Op.WritePort:
+                        {
+                            var port = GetPorts(method, (op[0] as FieldOperand).Field.Resolve()).Where(x => !x.is_ready && !x.is_valid).ToList();
+
+                            var outp = string.Join(",", port.Where(x => !x.input).Select(x => x.name).Reverse());
+
+                            sb.AppendLine($"    assign {{{outp}}} = {Get(op[1])};");
+
+                            continue;
+                        }
+                    case Op.ReadPort:
+                        {
+                            var port = GetPorts(method, (op[0] as FieldOperand).Field.Resolve()).Where(x => !x.is_ready && !x.is_valid).ToList();
+
+                            var inp = string.Join(",", port.Where(x => x.input).Select(x => x.name).Reverse());
+
+                            sb.AppendLine($"    assign res{op.Result} = {inp};");
+
+                            continue;
+                        }
                     case Op.Request:
                         {
-                            var port = GetPorts(method, (op[0] as FieldOperand).Field.Resolve());
+                            var port = GetPorts(method, (op[0] as FieldOperand).Field.Resolve()).Where(x => !x.is_ready && !x.is_valid).ToList();
 
-                            //sb.AppendLine("    assign {}")
+                            var outp = string.Join(",", port.Where(x => !x.input).Select(x => x.name).Reverse());
+                            var inp = string.Join(",", port.Where(x => x.input).Select(x => x.name).Reverse());
 
-                            break;
+                            sb.AppendLine($"    assign {{{outp}}} = {Get(op[1])};");
+                            sb.AppendLine($"    assign res{op.Result} = {{{inp}}};");
+
+                            continue;
                         }
 
                     default:
@@ -207,6 +332,9 @@ namespace CilLogic.CodeModel.Passes
                     res = $"assign res{op.Result} = " + res;
 
                 if (cond != "") res = $"if ({cond}) {res}";
+
+                if (clocked)
+                    res = "always @(posedge Clock) " + res;
 
                 sb.AppendLine("    " + res + ";");
             }

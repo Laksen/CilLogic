@@ -88,4 +88,24 @@ namespace CilLogic.Types
             Width = width;
         }
     }
+
+    public class ArrayLengthAttribute : Attribute
+    {
+        public int Length { get; }
+
+        public ArrayLengthAttribute(int length)
+        {
+            Length = length;
+        }
+    }
+
+    public class ResetValueAttribute : Attribute
+    {
+        public UInt64 Value { get; }
+
+        public ResetValueAttribute(UInt64 value)
+        {
+            Value = value;
+        }
+    }
 }
