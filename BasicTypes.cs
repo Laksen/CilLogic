@@ -64,6 +64,16 @@ namespace CilLogic.Types
         }
     }
 
+    public class PortPrefixAttribute : Attribute
+    {
+        public string Prefix { get; }
+
+        public PortPrefixAttribute(string prefix)
+        {
+            Prefix = prefix;
+        }
+    }
+
     public class BitWidthAttribute : Attribute
     {
         public int Width { get; }

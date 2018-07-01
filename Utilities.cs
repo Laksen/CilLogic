@@ -55,26 +55,33 @@ namespace CilLogic.Utilities
             return td.Name == "IPort";
         }
 
-        private static Dictionary<TypeReference, bool> PortDict = new Dictionary<TypeReference, bool>();
+        private static Dictionary<Tuple<TypeReference, Type>, bool> PortDict = new Dictionary<Tuple<TypeReference, Type>, bool>();
 
-        internal static bool IsPort(this TypeReference oper)
+        private static bool IsType(this TypeReference oper, Type t)
         {
-            if (!PortDict.ContainsKey(oper))
+            var key = new Tuple<TypeReference, Type>(oper, t);
+
+            if (!PortDict.ContainsKey(key))
             {
                 var res = false;
 
                 var td = oper.Resolve();
-                if (td.FullName == typeof(IPipe<>).FullName)
+                if (td.FullName == t.FullName)
                     res = true;
 
                 if (td.Interfaces.Any(i => IsPort(i.InterfaceType)))
                     res = true;
 
-                PortDict[oper] = res;
+                PortDict[key] = res;
             }
 
-            return PortDict[oper];
+            return PortDict[key];
         }
+
+        internal static bool IsPort(this TypeReference oper) { return IsType(oper, typeof(IPipe<>)); }
+        internal static bool IsInPort(this TypeReference oper) { return IsType(oper, typeof(IInput<>)); }
+        internal static bool IsOutPort(this TypeReference oper) { return IsType(oper, typeof(IOutput<>)); }
+        internal static bool IsRequestPort(this TypeReference oper) { return IsType(oper, typeof(IRequest<,>)); }
 
         public static bool IsStateInvariant(this BasicBlock block)
         {
@@ -221,6 +228,25 @@ namespace CilLogic.Utilities
                 return td;
 
             return null;
+        }
+
+        public static bool IsSimple(this TypeDefinition r)
+        {
+            if (r == r.Module.TypeSystem.Boolean) return true;
+
+            if (r == r.Module.TypeSystem.SByte) return true;
+            if (r == r.Module.TypeSystem.Int16) return true;
+            if (r == r.Module.TypeSystem.Int32) return true;
+            if (r == r.Module.TypeSystem.Int64) return true;
+
+            if (r == r.Module.TypeSystem.Byte) return true;
+            if (r == r.Module.TypeSystem.UInt16) return true;
+            if (r == r.Module.TypeSystem.UInt32) return true;
+            if (r == r.Module.TypeSystem.UInt64) return true;
+
+            if (r.IsEnum) return true;
+
+            return false;
         }
 
         public static int GetWidth(this TypeReference type, Method method, MemberReference scope = null)

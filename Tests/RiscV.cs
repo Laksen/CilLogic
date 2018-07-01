@@ -11,9 +11,11 @@ namespace CilLogic.Tests
         private const bool UseD = false;
         private const bool UseC = false;
 
-        public IRequest<UInt64, InstrResponse> IMem { get; set; }
+        [PortPrefix("IMem")]
+        public IRequest<UInt64, InstrResponse> IMem;
 
-        public IRequest<MemRequest, MemResponse> DMem { get; set; }
+        [PortPrefix("DMem")]
+        public IRequest<MemRequest, MemResponse> DMem;
 
         private UInt64[] regs;
 
@@ -316,6 +318,19 @@ namespace CilLogic.Tests
             return instr;
         }
 
+        private UInt64 GetSize(UInt32 instr)
+        {
+            switch (instr & 0x3)
+            {
+                case 0:
+                case 1:
+                case 2:
+                    return 2;
+                default:
+                    return 4;
+            }
+        }
+
         public override void Execute()
         {
             var curr_pc = pc;
@@ -326,13 +341,19 @@ namespace CilLogic.Tests
 
             UInt32 instr;
 
-            var npc = curr_pc + 4;
-            var xlen = E(misa, 63, 62) == 2 ? 64 : 32;
+            var curr_misa = misa;
+
+            var hasC = E(curr_misa, 2, 2) != 0;
+
+            var xlen = E(curr_misa, 63, 62) == 2 ? 64 : 32;
             var is64 = xlen == 64;
 
             var addrSpaceMask = is64 ? 0xFFFF_FFFFUL : 0xFFFF_FFFF_FFFF_FFFF;
 
-            if (IsAligned(curr_pc, 32))
+            var pc16bit = IsAligned(curr_pc, 16);
+            var pc32bit = IsAligned(curr_pc, 32);
+
+            if (hasC ? pc16bit : pc32bit)
             {
                 var instrResp = IMem.Request(curr_pc & addrSpaceMask);
                 switch (instrResp.Status)
@@ -351,13 +372,19 @@ namespace CilLogic.Tests
                 instr = 0;
             }
 
+            UInt64 instrSize = 4;
             if (UseC)
+            {
                 instr = ExpandCompressed(instr);
+                instrSize = GetSize(instr);
+            }
+
+            var npc = curr_pc + instrSize;
 
             // Set the most likely outcome
             pc = npc;
 
-            if (!fetchError && (E(instr, 1,0) != 3))
+            if (!fetchError && (E(instr, 1, 0) != 3))
             {
                 tval = instr;
                 instr = 0;
@@ -677,6 +704,34 @@ namespace CilLogic.Tests
         {
             regs = new UInt64[32];
         }
+    }
+
+    public struct RVFIPacket
+    {
+        public bool valid;
+        public UInt64 order;
+        public UInt32 insn;
+        public bool trap;
+        public bool halt;
+        public bool intr;
+
+        [BitWidth(5)]
+        public int rs1_addr;
+        [BitWidth(5)]
+        public int rs2_addr;
+        public UInt64 rs1_rdata;
+        public UInt64 rs2_rdata;
+
+        public UInt64 pc_rdata;
+        public UInt64 pc_wdata;
+
+        public UInt64 mem_addr;
+        [BitWidth(64 / 8)]
+        public int mem_rmask;
+        [BitWidth(64 / 8)]
+        public int mem_wmask;
+        public UInt64 mem_rdata;
+        public UInt64 mem_wdata;
     }
 
     public struct MemRequest

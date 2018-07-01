@@ -81,22 +81,24 @@ namespace CilLogic
             CodePass.DoPass<InlineConditions>(inp.Method);
             CodePass.DoPass<CollapseControlFlow>(inp.Method);
 
-            if (inp.Method.FindConnectedComponents().Any(x => x.Count > 1))
-                throw new Exception("CDFG has loops. Not yet supported");
+            if (inp.Method.FindConnectedComponents().Any(x => x.Count > 1)) throw new Exception("CDFG has loops. Not yet supported");
 
             CodePass.DoPass<Retype>(inp.Method); // Apply new type information
 
             CodePass.DoPass<FieldInlinePass>(inp.Method);
 
             CodePass.Process(inp.Method);
-            
+
             CodePass.DoPass<Retype>(inp.Method); // Apply new type information
             CodePass.Process(inp.Method);
             /*CodePass.DoPass<MuxToSelect>(inp.Method);
             CodePass.Process(inp.Method);*/
-            CodePass.DoPass<Schedule>(inp.Method);
 
-            File.WriteAllText(@"C:\Users\jepjoh2\Desktop\New Text Document.txt", (inp.Method).ToString());
+            new Schedule { Settings = new ScheduleSettings { ArrayDelay = 0, RegDelay = 0, RequestDelay = 0 } }.Pass(inp.Method);
+
+            new VerilogPass { Settings = new VerilogSettings { Filename = @"C:\Users\jepjoh2\Desktop\New Text Document.txt" } }.Pass(inp.Method);
+
+            /*File.WriteAllText(@"C:\Users\jepjoh2\Desktop\New Text Document.txt", (inp.Method).ToString());
             File.WriteAllText(@"C:\Users\jepjoh2\Desktop\Flow.txt", DFG(inp.Method).ToString());
 
             Process.Start(new ProcessStartInfo("dot", "-Tpng -otest.png Flow.txt") { WorkingDirectory = @"C:\Users\jepjoh2\Desktop", UseShellExecute = true });
@@ -107,7 +109,7 @@ namespace CilLogic
             foreach (var s in CodePass.PassTime.OrderByDescending(o => o.Value))
                 Console.WriteLine($"{s.Key}: {s.Value}");
 
-            Console.WriteLine("Total time: {0}", sw.Elapsed.TotalSeconds);
+            Console.WriteLine("Total time: {0}", sw.Elapsed.TotalSeconds);*/
         }
     }
 }

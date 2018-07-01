@@ -9,6 +9,8 @@ namespace CilLogic.Scheduling
 {
     public class Schedule : CodePass
     {
+        internal ScheduleSettings Settings = new ScheduleSettings();
+
         public override void Pass(Method method)
         {
             var scheduled = new HashSet<Opcode>();
@@ -19,7 +21,7 @@ namespace CilLogic.Scheduling
                 if (oper is ValueOperand vo)
                 {
                     Schedule(producers[vo.Value]);
-                    return producers[vo.Value].ReadyOn();
+                    return producers[vo.Value].ReadyOn(Settings);
                 }
                 else
                     return 0;
@@ -43,7 +45,7 @@ namespace CilLogic.Scheduling
                 var key = new Tuple<int, int>(op.Result, forSchedule);
                 if (!regs.ContainsKey(key))
                 {
-                    if (op.ReadyOn() == forSchedule)
+                    if (op.ReadyOn(Settings) == forSchedule)
                         regs[key] = op.Result;
                     else
                     {
@@ -75,18 +77,30 @@ namespace CilLogic.Scheduling
         }
     }
 
+    internal class ScheduleSettings
+    {
+        public int RegDelay;
+        public int ArrayDelay;
+        public int RequestDelay;
+
+        public ScheduleSettings()
+        {
+            RegDelay = 1;
+            ArrayDelay = 1;
+            RequestDelay = 1;
+        }
+    }
+
     internal static class ScheduleHelpers
     {
-        public static int ReadyOn(this Opcode code)
+        public static int ReadyOn(this Opcode code, ScheduleSettings settings)
         {
             switch (code.Op)
             {
-                case Op.Reg:
-                case Op.LdArray:
-                case Op.Request:
-                    return code.Schedule + 1;
-                default:
-                    return code.Schedule;
+                case Op.Reg: return code.Schedule + settings.RegDelay;
+                case Op.LdArray: return code.Schedule + settings.ArrayDelay;
+                case Op.Request: return code.Schedule + settings.RequestDelay;
+                default: return code.Schedule;
             }
         }
     }
