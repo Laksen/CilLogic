@@ -143,7 +143,7 @@ namespace CilLogic.CodeModel.Passes
                             if ((br[0] is BlockOperand bo) && (bo.Block == dst))
                             {
                                 // (test > (x.Operands.Count-1))
-                                var testOp = src.Prepend(new Opcode(method.GetValue(), Op.Cltu, x.Operands.Count - 1, test));
+                                var testOp = src.Prepend(new Opcode(method.GetValue(), Op.Cltu, x.Operands.Count - 2, test));
 
                                 if (res != 0)
                                     res = src.Prepend(new Opcode(method.GetValue(), Op.Or, new ValueOperand(testOp), new ValueOperand(res, VectorType.UInt1))).Result;
@@ -161,9 +161,9 @@ namespace CilLogic.CodeModel.Passes
                         int res = 0;
 
                         if ((x[1] is BlockOperand bo) && (bo.Block == dst))
+                            res = src.Prepend(new Opcode(method.GetValue(), Op.NInSet, x[0], 0)).Result;
+                        else if ((x[2] is BlockOperand bo2) && (bo2.Block == dst))
                             res = src.Prepend(new Opcode(method.GetValue(), Op.InSet, x[0], 0)).Result;
-                        else
-                            res = src.Prepend(new Opcode(method.GetValue(), Op.Mov, x[0])).Result;
 
                         res = src.Prepend(new Opcode(method.GetValue(), Op.And, new ValueOperand(res, VectorType.UInt1), new ValueOperand(conditions[src], VectorType.UInt1))).Result;
 

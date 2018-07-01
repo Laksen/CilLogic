@@ -12,7 +12,6 @@ namespace CilLogic.CodeModel.Passes
             DoPass<PassSinglePeephole>(method, ">");
             DoPass<PassMultiPeephole>(method, ">");
             DoPass<Diamondify>(method, ">");
-            //DoPass<PhiDiamondPass>(method, ">");
             DoPass<PhiInverseDiamond>(method, ">");
         }
 
@@ -272,8 +271,8 @@ namespace CilLogic.CodeModel.Passes
                                             wasFixed = true;
                                         }
                                     }
-                                    
-                                    if (!wasFixed && method.IsRetyped && (op[0] is ValueOperand vo2))
+
+                                    /*if (!wasFixed && method.IsRetyped && (op[0] is ValueOperand vo2))
                                     {
                                         var gen = producers.Value[vo2.Value];
 
@@ -285,7 +284,7 @@ namespace CilLogic.CodeModel.Passes
                                             op.Block.Replace(op, newOp);
                                             wasFixed = true;
                                         }
-                                    }
+                                    }*/
                                     break;
                                 }
                             case Op.NInSet:
@@ -580,6 +579,9 @@ namespace CilLogic.CodeModel.Passes
                             case Op.Cltu: o = new ConstOperand(a.Value < b.Value ? 1UL : 0, false, 1); break;
 
                             case Op.InSet: o = new ConstOperand(a.Value == b.Value ? 1UL : 0, false, 1); break;
+                            case Op.NInSet: o = new ConstOperand(a.Value != b.Value ? 1UL : 0, false, 1); break;
+
+                            case Op.Select: o = ins[0]; break;
 
                             case Op.StLoc: break;
 
@@ -653,6 +655,8 @@ namespace CilLogic.CodeModel.Passes
                                     o = ins[1];
                                 break;
 
+                            case Op.Select: o = ins[0]; break;
+
                             default:
                                 Console.WriteLine(ins);
                                 break;
@@ -716,13 +720,13 @@ namespace CilLogic.CodeModel.Passes
                                         ins.Block.Replace(ins, new Opcode(ins.Result, Op.NInSet, ins[1], ins[0]));
                                     else if (co.Value == 1)
                                         ins.Block.Replace(ins, new Opcode(ins.Result, Op.InSet, ins[1], 0, ins[0]));
-                                    else if (method.IsRetyped)
+                                    /*else if (method.IsRetyped)
                                     {
                                         var maxVal = (1UL << ins[1].OperandType.GetWidth()) - 1;
 
                                         if (maxVal <= co.Value)
                                             ins.Block.Replace(ins, new Opcode(ins.Result, Op.Mov, 0));
-                                    }
+                                    }*/
                                 }
                                 break;
                             }
@@ -894,7 +898,6 @@ namespace CilLogic.CodeModel.Passes
                                     else if (phis.Where(p => !(p.Value is UndefOperand)).Count() == 1)
                                         ins.Block.Replace(ins, Enqueue(new Opcode(ins.Result, Op.Mov, phis.Where(p => !(p.Value is UndefOperand)).FirstOrDefault().Value)));
                                 }
-
                                 break;
                             }
                         case Op.BrCond:
@@ -948,6 +951,12 @@ namespace CilLogic.CodeModel.Passes
                                             ins.Operands.Insert(0, new CondValue(new ValueOperand(cond.Result, VectorType.UInt1), val2, val2.OperandType));
                                         }
                                     }
+                                }
+                                else if (ins.Operands.Count == 1)
+                                {
+                                    var op = new Opcode(ins.Result, Op.Mov, ins[0]);
+                                    ins.Block.Replace(ins, op);
+                                    queue.Enqueue(op);
                                 }
                                 break;
                             }

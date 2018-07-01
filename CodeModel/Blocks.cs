@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Mono.Cecil;
 using CilLogic.Utilities;
+using System.Diagnostics;
 
 namespace CilLogic.CodeModel
 {
@@ -238,6 +239,7 @@ namespace CilLogic.CodeModel
         }
     }
 
+    [DebuggerDisplay("BB{Id}")]
     public class BasicBlock
     {
         private static int counter = 1;

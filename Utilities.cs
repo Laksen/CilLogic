@@ -348,7 +348,7 @@ namespace CilLogic.Utilities
                     if (scope.Fields[i] == field)
                         return new FieldInfo { Lsb = lsb, Msb = lsb + width - 1 };
                     else
-                        lsb += scope.Fields[i].FieldType.GetWidth(method);
+                        lsb += scope.Fields[i].Resolve().GetWidth(method);
                 }
             }
             else

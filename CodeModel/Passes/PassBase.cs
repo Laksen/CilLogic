@@ -9,7 +9,7 @@ namespace CilLogic.CodeModel.Passes
 {
     public abstract class CodePass
     {
-        private const bool DebugPasses = true;
+        private const bool DebugPasses = false;
 
         public abstract void Pass(Method method);
 
@@ -47,6 +47,19 @@ namespace CilLogic.CodeModel.Passes
 
                 try
                 {
+                    var nexts = m.Blocks.ToDictionary(b => b, b => b.NextBlocks());
+
+                    foreach (var blk in m.Blocks)
+                    {
+                        var prevBlocks = nexts.Where(kvp => kvp.Value.Contains(blk)).Select(x => x.Key).ToList();
+
+                        foreach (var instr in blk.Instructions.Where(x => x.Op == Op.Phi))
+                        {
+                            if (instr.Operands.OfType<PhiOperand>().Any(p => !prevBlocks.Contains(p.Block)))
+                                throw new Exception("Pass made phi operand source disappear");
+                        }
+                    }
+
                     if (instrs.Where(x => x.Result != 0).GroupBy(r => r.Result).Any(i => i.Count() > 1))
                         throw new Exception($"Pass caused instruction to be duplicated: {typeof(T).Name}");
 
@@ -90,6 +103,8 @@ namespace CilLogic.CodeModel.Passes
                 DoPass<PassDeadCode>(m);
                 DoPass<ReuseDuplicates>(m);
             }
+
+            DoPass<PassDeadCode>(m);
         }
     }
 }
