@@ -309,11 +309,11 @@ namespace CilLogic.CodeModel
                     case Code.Blt: case Code.Blt_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Clt, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
                     case Code.Blt_Un: case Code.Blt_Un_S: { var v2 = Pop(); var v1 = Pop(); Observe(new Opcode(0, Op.BrTrue, new ValueOperand(Observe(new Opcode(method.GetValue(), Op.Cltu, v1, v2))), jumpPoints[ins.Operand as Instruction])); break; }
 
-                    case Code.Ceq: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Ceq, a, b))); break; }
-                    case Code.Cgt: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Clt, b, a))); break; }
+                    case Code.Ceq:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Ceq,  a, b))); break; }
+                    case Code.Cgt:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Clt,  b, a))); break; }
                     case Code.Cgt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Cltu, b, a))); break; }
-                    case Code.Clt: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Clt, b, a))); break; }
-                    case Code.Clt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Cltu, b, a))); break; }
+                    case Code.Clt:    { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Clt,  a, b))); break; }
+                    case Code.Clt_Un: { var b = Pop(); var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Cltu, a, b))); break; }
 
                     case Code.Not: { var a = Pop(); Push(Observe(new Opcode(method.GetValue(), Op.Xor, a, new ConstOperand(~0UL)))); break; }
 

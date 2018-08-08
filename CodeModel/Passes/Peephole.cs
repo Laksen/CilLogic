@@ -13,6 +13,8 @@ namespace CilLogic.CodeModel.Passes
             DoPass<PassMultiPeephole>(method, ">");
             DoPass<Diamondify>(method, ">");
             DoPass<PhiInverseDiamond>(method, ">");
+            DoPass<Diamondify>(method, ">");
+            DoPass<PhiInverseDiamond>(method, ">");
         }
 
         public class Diamondify : CodePass
@@ -145,92 +147,6 @@ namespace CilLogic.CodeModel.Passes
             }
         }
 
-        private class PhiDiamondPass : CodePass
-        {
-            public override void Pass(Method method)
-            {
-                if (!method.IsSSA) return;
-
-                bool wasOK = false;
-
-                do
-                {
-                    wasOK = false;
-
-                    var nextBlocks = method.Blocks.ToDictionary(b => b, b => b.Instructions.SelectMany(o => o.Operands).OfType<BlockOperand>().Select(bo => bo.Block).ToHashSet());
-                    var candidate = method.Blocks.FirstOrDefault(b =>
-                    {
-                        var nb = nextBlocks[b].ToArray();
-                        if (nb.Length != 2) return false;
-                        if (nb[0] == nb[1]) return false;
-                        if (b.Instructions.Last().Op != Op.BrCond) return false;
-
-                        var nx = nextBlocks[nb[0]].ToArray();
-                        var ny = nextBlocks[nb[1]].ToArray();
-
-                        if (nx.Length != 1) return false;
-                        if (ny.Length != 1) return false;
-
-                        if (nx[0] != ny[0]) return false;
-
-                        if (!nx[0].Instructions.Where(i => i.Op == Op.Phi).All(o => o.Operands.Count == 2)) return false;
-
-                        var cond = b.Instructions.Last()[0];
-
-                        var b0 = b;
-                        var bt = (b.Instructions.Last()[1] as BlockOperand).Block;
-                        var bf = (b.Instructions.Last()[2] as BlockOperand).Block;
-                        var b3 = nx[0];
-
-                        if (bt.Instructions.Concat(bf.Instructions).Where(x => x.Op != Op.Br).Any(i => i.HasSideEffects())) return false;
-
-                        if (nextBlocks.Where(kvp => kvp.Value.Contains(bt)).Count() > 1) return false;
-                        if (nextBlocks.Where(kvp => kvp.Value.Contains(bf)).Count() > 1) return false;
-
-                        var toRep = new Dictionary<int, int>();
-                        foreach (var ins in bt.Instructions.Concat(bf.Instructions).Where(x => x.Op != Op.Br))
-                        {
-                            var o = new Opcode(method.GetValue(), ins.Op, ins.Operands.ToArray());
-                            b0.Prepend(o);
-                            toRep.Add(ins.Result, o.Result);
-                        }
-
-                        Operand Replace(Operand old)
-                        {
-                            if (old is ValueOperand vo)
-                                if (toRep.ContainsKey(vo.Value))
-                                    return new ValueOperand(toRep[vo.Value], vo.OperandType);
-                            return old;
-                        }
-
-                        b0.Replace(b0.Instructions.Last(), new Opcode(0, Op.Br, new BlockOperand(b3)));
-
-                        foreach (var pi in b3.Instructions.Where(o => o.Op == Op.Phi).ToList())
-                        {
-                            var to = pi.Operands.OfType<PhiOperand>().Where(p => p.Block == bt).Select(x => x.Value).Single();
-                            var fo = pi.Operands.OfType<PhiOperand>().Where(p => p.Block == bf).Select(x => x.Value).Single();
-
-                            b3.Replace(pi, new Opcode(pi.Result, Op.Mux, cond, Replace(fo), Replace(to)));
-                        }
-
-                        /*foreach (var op in bt.Instructions.Where(x => x.Op != Op.Br).ToList()) { b0.Prepend(op); bt.Instructions.Remove(op); }
-                        foreach (var op in bf.Instructions.Where(x => x.Op != Op.Br).ToList()) { b0.Prepend(op); bf.Instructions.Remove(op); }*/
-
-                        //method.Blocks.Remove(bt);
-                        //method.Blocks.Remove(bf);
-
-                        return true;
-                    });
-
-                    if (candidate != null)
-                    {
-                        wasOK = true;
-                    }
-                }
-                while (wasOK);
-            }
-        }
-
         private class PassMultiPeephole : CodePass
         {
             public override void Pass(Method method)
@@ -293,14 +209,14 @@ namespace CilLogic.CodeModel.Passes
                                     {
                                         var gen = producers.Value[vo2.Value];
 
-                                        if ((gen.Op == Op.Sub) && (gen[1] is ConstOperand co))
-                                        {
-                                            var clamp = (1UL << gen[0].OperandType.GetWidth()) - 1;
+                                        // if ((gen.Op == Op.Sub) && (gen[1] is ConstOperand co))
+                                        // {
+                                        //     var clamp = (1UL << gen[0].OperandType.GetWidth()) - 1;
 
-                                            var newOp = new Opcode(op.Result, Op.NInSet, gen.Operands.Take(1).Concat(op.Operands.Skip(1).Cast<ConstOperand>().Select(c => new ConstOperand((c.Value + co.Value) & clamp))).ToArray());
-                                            op.Block.Replace(op, newOp);
-                                            wasFixed = true;
-                                        }
+                                        //     var newOp = new Opcode(op.Result, Op.NInSet, gen.Operands.Take(1).Concat(op.Operands.Skip(1).Cast<ConstOperand>().Select(c => new ConstOperand((c.Value + co.Value) & clamp))).ToArray());
+                                        //     op.Block.Replace(op, newOp);
+                                        //     wasFixed = true;
+                                        // }
                                     }
                                     break;
                                 }
@@ -619,6 +535,10 @@ namespace CilLogic.CodeModel.Passes
                                     break;
                                 }
 
+                            case Op.Or:
+                                o = ins.Operands.OfType<ConstOperand>().Select(x => x.Value).Aggregate((x, y) => x | y);
+                                break;
+
                             case Op.Conv:
 
                             case Op.LdLoc:
@@ -716,11 +636,11 @@ namespace CilLogic.CodeModel.Passes
                             {
                                 if (ins[0] is ConstOperand co)
                                 {
-                                    if (co.Value == 0)
+                                    /*if (co.Value == 0)
                                         ins.Block.Replace(ins, new Opcode(ins.Result, Op.NInSet, ins[1], ins[0]));
                                     else if (co.Value == 1)
                                         ins.Block.Replace(ins, new Opcode(ins.Result, Op.InSet, ins[1], 0, ins[0]));
-                                    /*else if (method.IsRetyped)
+                                    else if (method.IsRetyped)
                                     {
                                         var maxVal = (1UL << ins[1].OperandType.GetWidth()) - 1;
 
@@ -736,6 +656,7 @@ namespace CilLogic.CodeModel.Passes
                                     ins.Block.Replace(ins, new Opcode(ins.Result, Op.Mov, ins[0]));
                                 else
                                 {
+                                    var wasfixed = true;
                                     var oldConst = ins.Operands.OfType<ConstOperand>().FirstOrDefault();
                                     if ((oldConst != null) && ins.Operands.RemoveAll(o => (o is ConstOperand co2) && (co2.Value == 0)) > 0)
                                     {
@@ -744,12 +665,14 @@ namespace CilLogic.CodeModel.Passes
                                             var newop = new Opcode(ins.Result, Op.Mov, oldConst);
                                             ins.Block.Replace(ins, newop);
                                             queue.Enqueue(newop);
+                                            wasfixed = true;
                                         }
                                         else if (ins.Operands.Count == 1)
                                         {
                                             var newop = new Opcode(ins.Result, Op.Mov, ins[0]);
                                             ins.Block.Replace(ins, newop);
                                             queue.Enqueue(newop);
+                                            wasfixed = true;
                                         }
                                     }
                                     else if (ins.Operands.OfType<ConstOperand>().Count() > 1)
@@ -762,6 +685,17 @@ namespace CilLogic.CodeModel.Passes
                                         ins.Operands.RemoveAll(o => (o is ConstOperand));
                                         ins.Operands.Add(value);
                                         queue.Enqueue(ins);
+                                            wasfixed = true;
+                                    }
+
+                                    if (!wasfixed && ins.Operands.Where(x => !(x is ConstOperand)).All(x => x.OperandType.IsBool()))
+                                    {
+                                        if (ins.Operands.Any(o => (o is ConstOperand co) && co.Value == 1))
+                                        {
+                                            var newop = new Opcode(ins.Result, Op.Mov, new ConstOperand(1, false, 1));
+                                            ins.Block.Replace(ins, newop);
+                                            queue.Enqueue(newop);
+                                        }
                                     }
                                 }
                                 break;
@@ -774,6 +708,15 @@ namespace CilLogic.CodeModel.Passes
                                     ins.Block.Replace(ins, new Opcode(ins.Result, Op.Mov, 0));
                                 else if ((ins[1] is ConstOperand co3) && (co3.Value.IsSlice(out int msb, out int lsb)))
                                     ins.Block.Replace(ins, new Opcode(ins.Result, Op.Slice, ins[0], msb, lsb, lsb, 0));
+                                else
+                                {
+                                    if (ins.Operands.Where(x => !(x is ConstOperand)).All(x => x.OperandType.IsBool()))
+                                    {
+                                        ins.Operands.RemoveAll(o => (o is ConstOperand co) && co.Value == 1);
+                                        if (ins.Operands.Count == 0)
+                                            ins.Operands.Add(new ConstOperand(1, false, 1));
+                                    }
+                                }
                                 break;
                             }
                         case Op.Ceq:

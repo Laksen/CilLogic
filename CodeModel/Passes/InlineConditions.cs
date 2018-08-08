@@ -103,6 +103,8 @@ namespace CilLogic.CodeModel.Passes
             conditions[method.Entry] = cnd.Result;
             method.Entry.Prepend(cnd);
 
+            var transferCond = new Dictionary<(BasicBlock src, BasicBlock dst), HashSet<int>>();
+
             var toCondition = new Queue<BasicBlock>(method.Blocks);
 
             foreach (var b in next)
@@ -113,65 +115,91 @@ namespace CilLogic.CodeModel.Passes
                     pred[n].Add(b.Key);
                 }
 
-            int GetTargetCondition(BasicBlock src, BasicBlock dst)
+            foreach (var src in next.Keys)
             {
-                if (!src.Instructions.Any(x => x.IsCondJump)) return conditions[src];
-
-                var d = new HashSet<int>();
-
-                foreach (var x in src.Instructions)
+                foreach (var x in src.Instructions.ToList())
                 {
                     if (x.Op == Op.Switch)
                     {
                         var test = x.Operands[0];
-                        var indices = Enumerable.Range(0, x.Operands.Count - 1).Where(i => (x[i + 1] is BlockOperand bo) && (bo.Block == dst)).ToList();
 
-                        int res = 0;
+                        var targets = x.Operands.Skip(1).OfType<BlockOperand>().Select(y => y.Block).Distinct();
 
-                        // (test in indices)
-                        if (indices.Count != 0)
+                        foreach (var target in targets)
                         {
-                            var testOp = src.Prepend(new Opcode(method.GetValue(), Op.InSet, new[] { test }.Concat(indices.Select(y => new ConstOperand(y))).ToArray()));
+                            var indices = Enumerable.Range(0, x.Operands.Count - 1).Where(i => (x[i + 1] is BlockOperand bo) && (bo.Block == target)).ToList();
+                            // (test in indices)
+                            if (indices.Count != 0)
+                            {
+                                var testOp = src.Prepend(new Opcode(method.GetValue(), Op.InSet, new[] { test }.Concat(indices.Select(y => new ConstOperand(y))).ToArray()));
+                                var key = (src: src, dst: target);
 
-                            res = testOp.Result;
+                                if (!transferCond.ContainsKey(key)) transferCond[key] = new HashSet<int>();
+
+                                transferCond[key].Add(testOp.Result);
+                            }
                         }
 
                         if (x.Next != null)
                         {
                             var br = x.Next;
 
-                            if ((br[0] is BlockOperand bo) && (bo.Block == dst))
+                            if (br[0] is BlockOperand bo)
                             {
                                 // (test > (x.Operands.Count-1))
                                 var testOp = src.Prepend(new Opcode(method.GetValue(), Op.Cltu, x.Operands.Count - 2, test));
 
-                                if (res != 0)
-                                    res = src.Prepend(new Opcode(method.GetValue(), Op.Or, new ValueOperand(testOp), new ValueOperand(res, VectorType.UInt1))).Result;
-                                else
-                                    res = testOp.Result;
+                                var key = (src: src, dst: bo.Block);
+
+                                if (!transferCond.ContainsKey(key)) transferCond[key] = new HashSet<int>();
+
+                                transferCond[key].Add(testOp.Result);
                             }
                         }
-
-                        res = src.Prepend(new Opcode(method.GetValue(), Op.And, new ValueOperand(res, VectorType.UInt1), new ValueOperand(conditions[src], VectorType.UInt1))).Result;
-
-                        return res;
                     }
                     else if (x.Op == Op.BrCond)
                     {
-                        int res = 0;
+                        var test = x[0];
 
-                        if ((x[1] is BlockOperand bo) && (bo.Block == dst))
-                            res = src.Prepend(new Opcode(method.GetValue(), Op.NInSet, x[0], 0)).Result;
-                        else if ((x[2] is BlockOperand bo2) && (bo2.Block == dst))
-                            res = src.Prepend(new Opcode(method.GetValue(), Op.InSet, x[0], 0)).Result;
+                        var tblock = (x[1] as BlockOperand).Block;
+                        var fblock = (x[2] as BlockOperand).Block;
 
-                        res = src.Prepend(new Opcode(method.GetValue(), Op.And, new ValueOperand(res, VectorType.UInt1), new ValueOperand(conditions[src], VectorType.UInt1))).Result;
+                        {
+                            var key = (src: src, dst: tblock);
+                            if (!transferCond.ContainsKey(key)) transferCond[key] = new HashSet<int>();
+                            transferCond[key].Add(src.Prepend(new Opcode(method.GetValue(), Op.NInSet, test, 0)).Result);
+                        }
 
-                        return res;
+                        {
+                            var key = (src: src, dst: fblock);
+                            if (!transferCond.ContainsKey(key)) transferCond[key] = new HashSet<int>();
+                            transferCond[key].Add(src.Prepend(new Opcode(method.GetValue(), Op.InSet, test, 0)).Result);
+                        }
+                    }
+                    else if (x.Op == Op.Br)
+                    {
+                        var tblock = (x[0] as BlockOperand).Block;
+
+                        var key = (src: src, dst: tblock);
+                        if (!transferCond.ContainsKey(key)) transferCond[key] = new HashSet<int>();
+                        transferCond[key].Add(src.Prepend(new Opcode(method.GetValue(), Op.Mov, 1)).Result);
                     }
                 }
+            }
 
-                return 0;
+            int GetTargetCondition(BasicBlock src, BasicBlock dst)
+            {
+                if (transferCond.ContainsKey((src: src, dst: dst)))
+                {
+                    var conds = transferCond[(src: src, dst: dst)];
+
+                    var combined = src.Prepend(new Opcode(method.GetValue(), Op.Or, conds.Select(x => new ValueOperand(x, VectorType.UInt1)).ToArray()));
+                    var predicated = src.Prepend(new Opcode(method.GetValue(), Op.And, new ValueOperand(combined), new ValueOperand(conditions[src], VectorType.UInt1)));
+
+                    return predicated.Result;
+                }
+                else
+                    return 0;
             }
 
             void GetCondition(BasicBlock b)
@@ -200,7 +228,7 @@ namespace CilLogic.CodeModel.Passes
 
                     case Op.StFld:
                     case Op.StArray:
-                    
+
                     case Op.LdArray:
                     case Op.LdFld:
 

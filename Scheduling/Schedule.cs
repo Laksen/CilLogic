@@ -30,6 +30,7 @@ namespace CilLogic.Scheduling
             void Schedule(Opcode code)
             {
                 if (scheduled.Contains(code)) return;
+                if (!code.Operands.Any()) return;
 
                 code.Schedule = code.Operands.Max(ScheduleOper);
                 scheduled.Add(code);

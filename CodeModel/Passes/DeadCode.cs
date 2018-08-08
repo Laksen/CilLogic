@@ -298,12 +298,33 @@ namespace CilLogic.CodeModel.Passes
             }
         }
 
+        public class ReturnPropagate : CodePass
+        {
+            public override void Pass(Method method)
+            {
+                foreach (var b in method.Blocks)
+                {
+                    if ((b.Instructions.Count > 1) && (b.Instructions.Last().Op == Op.Br) && b.Instructions.All(i => !i.IsCondJump))
+                    {
+                        var br = b.Instructions.Last();
+                        var bo = (br[0] as BlockOperand)?.Block;
+
+                        if (bo == null) break;
+                        
+                        if ((bo.Instructions.Count == 1) && (bo.Instructions[0].Op == Op.Return) && (bo.Instructions[0].Operands.Count == 0))
+                            b.Replace(br, new Opcode(0, Op.Return));
+                    }
+                }
+            }
+        }
+
         public override void Pass(Method method)
         {
             CodePass.DoPass<RemoveStaleBranches>(method, ">");
             CodePass.DoPass<PassDeadValues>(method, ">");
             CodePass.DoPass<CodeHoist>(method, ">");
             CodePass.DoPass<RemoveDeadJumps>(method, ">");
+            CodePass.DoPass<ReturnPropagate>(method, ">");
             RemoveDeadBlocks(method);
             SpliceBlocks(method);
             CodePass.DoPass<EliminateJumpThrough>(method, ">");

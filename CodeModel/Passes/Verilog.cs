@@ -49,6 +49,22 @@ namespace CilLogic.CodeModel.Passes
                 addedSelect = true;
             }
 
+            var allStArrays = method.AllInstructions().Where(x => x.Op == Op.StArray).ToList();
+            foreach (var starray in allStArrays.GroupBy(x => x[0]).Where(x => x.Count() > 1))
+            {
+                var old = starray.ToList();
+
+                var condition = method.Entry.Prepend(new Opcode(method.GetValue(), Op.Or, old.Select(x => x[3]).ToArray()));
+                var value = method.Entry.Prepend(new Opcode(method.GetValue(), Op.Select, old.Select(x => new CondValue(x[3], x[2], x[2].OperandType)).ToArray()));
+                var index = method.Entry.Prepend(new Opcode(method.GetValue(), Op.Select, old.Select(x => new CondValue(x[3], x[1], x[1].OperandType)).ToArray()));
+
+                var req = new Opcode(0, Op.StArray, starray.Key, new ValueOperand(index), new ValueOperand(value), new ValueOperand(condition));
+                method.Entry.Prepend(req);
+                old.ForEach(x => x.Block.Replace(x, new Opcode(x.Result, Op.Mov, new ValueOperand(req))));
+
+                addedSelect = true;
+            }
+
             if (addedSelect)
             {
                 CodePass.DoPass<PassDeadCode>(method);
@@ -234,7 +250,11 @@ namespace CilLogic.CodeModel.Passes
                     case Op.Mux: res = string.Format("{0} ? {2} : {1}", Get(op[0]), Get(op[1]), Get(op[2])); break;
 
                     case Op.LdFld: res = Get(op[1]); break;
-                    case Op.LdArray: res = Get(op[0]) + "[" + Get(op[1]) + "]"; break;
+                    case Op.LdArray:
+                        sb.AppendLine(string.Format("always @(posedge Clock) res{0} <= {1}[{2}];", op.Result, Get(op[0]), Get(op[1])));
+                        continue;
+                        //res = Get(op[0]) + "[" + Get(op[1]) + "]";
+                        //break;
 
                     case Op.StFld:
                         res = Get(op[1]) + " <= " + Get(op[2]);
@@ -323,6 +343,9 @@ namespace CilLogic.CodeModel.Passes
 
                             continue;
                         }
+                    case Op.Reg:
+                        sb.AppendLine(string.Format("    always @(posedge Clock) res{0} <= {1};", op.Result, Get(op[0])));
+                        continue;
 
                     default:
                         throw new Exception($"Unhandled opcode: {op.Op}");

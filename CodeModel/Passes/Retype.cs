@@ -31,6 +31,12 @@ namespace CilLogic.CodeModel.Passes
 
                     return new CondValue(cond, value, value.OperandType);
                 }
+                else if (oper is PhiOperand po)
+                {
+                    var value = GetRealType(po.Value);
+
+                    return new PhiOperand(po.Block, value);
+                }
                 else if (oper is ConstOperand co)
                 {
                     if ((co.Value == 0) && (co.Width > 1))

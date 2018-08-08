@@ -11,6 +11,8 @@ namespace CilLogic.Tests
         private const bool UseD = false;
         private const bool UseC = false;
 
+        private const bool IncludeRVFI = false;
+
         [PortPrefix("IMem")]
         public IRequest<UInt64, InstrResponse> IMem;
 
@@ -402,10 +404,7 @@ namespace CilLogic.Tests
 
             var npc = curr_pc + instrSize;
 
-            // Set the most likely outcome
-            pc = npc;
-
-            if (!fetchError && (E(instr, 1, 0) != 3))
+            if ((!fetchError) && (E(instr, 1, 0) != 3))
             {
                 tval = instr;
                 instr = 0;
@@ -472,9 +471,12 @@ namespace CilLogic.Tests
             UInt64 result = AluOp(vrs1, op2, aluf3, aluf7, (UInt64)(isW ? 0x1F : 0x3F));
 
             var f7_w = (E(f7, 4, 0) == 0) && (E(f7, 6, 6) == 0);
-            var f7_n = E(f7, 5, 5) == 0;
+            var f7_n = E(f7, 5, 5) != 0;
 
-            var add_check = ((f3 == 0) || (f3 == 5)) ? false : f7_n;
+            var add_illegal = ((f3 == 0) || (f3 == 5)) ? false : !f7_n;
+            var addi_illegal = (f3 == 1) ? f7_n || !f7_w :
+                               (f3 == 5) ? !f7_w :
+                               false;
 
             var pc_imm = opcode == Opcode.jalr ? result : imm;
             var calc_pc = curr_pc + pc_imm;
@@ -485,49 +487,65 @@ namespace CilLogic.Tests
             int mem_rmask = 0;
             int mem_wmask = 0;
 
+            var result_signextended = SignExtend(result, 31);
+
             switch (opcode)
             {
                 case Opcode.add:
-                    if (!f7_w || add_check)
+                    if (!f7_w || add_illegal)
                         goto default;
+                    if (rd != 0) regs[rd] = result;
+                    if (!IncludeRVFI) { pc = npc; return; }
                     break;
 
                 case Opcode.addi:
-                    if (add_check)
+                    if (addi_illegal)
                         goto default;
+                    if (rd != 0) regs[rd] = result;
+                    if (!IncludeRVFI) { pc = npc; return; }
                     break;
 
                 case Opcode.addw:
-                    if (!f7_w || add_check)
+                    if (!f7_w || add_illegal || !is64)
                         goto default;
-                    else
-                        goto case Opcode.addiw;
-
-                case Opcode.addiw:
-                    if (add_check || !is64)
-                    {
-                        goto default;
-                    }
-                    result = SignExtend(result, 31);
+                    result = result_signextended;
+                    if (rd != 0) regs[rd] = result;
+                    if (!IncludeRVFI) { pc = npc; return; }
                     break;
 
-                case Opcode.lui: result = imm; break;
-                case Opcode.auipc: result = calc_pc; break;
+                case Opcode.addiw:
+                    if (addi_illegal || !is64)
+                        goto default;
+                    result = result_signextended;
+                    if (rd != 0) regs[rd] = result;
+                    if (!IncludeRVFI) { pc = npc; return; }
+                    break;
+
+                case Opcode.lui:
+                    if (rd != 0) regs[rd] = imm;
+                    if (!IncludeRVFI) { pc = npc; return; }
+                    break;
+                case Opcode.auipc:
+                    result = calc_pc;
+                    if (rd != 0) regs[rd] = result;
+                    if (!IncludeRVFI) { pc = npc; return; }
+                    break;
 
                 case Opcode.jal:
                 case Opcode.jalr:
                     {
                         result = npc;
-                        pc = calc_pc;
+                        if (rd != 0) regs[rd] = result;
+                        npc = calc_pc;
+                        if (!IncludeRVFI) { pc = npc; return; }
                         break;
                     }
 
                 case Opcode.beq:
                     {
                         if (Cond(f3, vrs1, vrs2))
-                            pc = calc_pc;
-
-                        rd = 0;
+                            npc = calc_pc;
+                        if (!IncludeRVFI) { pc = npc; return; }
                         break;
                     }
 
@@ -596,6 +614,8 @@ namespace CilLogic.Tests
                             var signMask = SignExtend(result >> msb, 0);
                             result = (result & mask) | (signMask & ~mask);
                         }
+                        if (rd != 0) regs[rd] = result;
+                        if (!IncludeRVFI) { pc = npc; return; }
 
                         break;
                     }
@@ -648,6 +668,8 @@ namespace CilLogic.Tests
                         }
 
                         rd = 0;
+                        if (!IncludeRVFI) { pc = npc; return; }
+
                         break;
                     }
 
@@ -655,6 +677,8 @@ namespace CilLogic.Tests
                     {
                         // NOP
                         rd = 0;
+                        if (!IncludeRVFI) { pc = npc; return; }
+
                         break;
                     }
 
@@ -707,13 +731,17 @@ namespace CilLogic.Tests
                             var res = WriteRegister(csr, cMask, sMask, doWrite, rd != 0, is64);
 
                             if (res.Ok)
+                            {
                                 result = res.OldValue;
+                                if (rd != 0) regs[rd] = result;
+                            }
                             else
                             {
                                 errorCause = ErrorType.IllegalInstruction;
                                 goto default;
                             }
                         }
+                        if (!IncludeRVFI) { pc = npc; return; }
 
                         break;
                     }
@@ -730,7 +758,7 @@ namespace CilLogic.Tests
                         mtval = tval;
 
                         privilege = PrivilegeLevel.M;
-                        pc = CalcVector(mtvec, wasIntr, errorCause);
+                        npc = CalcVector(mtvec, wasIntr, errorCause);
 
                         wasTrap = true;
 
@@ -740,34 +768,35 @@ namespace CilLogic.Tests
                     }
             }
 
-            if (rd != 0) regs[rd] = result;
+            pc = npc;
 
-            RVFI.WriteValue(new RVFIPacket
-            {
-                valid = true,
-                order = RVFI_Order++,
-                insn = instr,
-                trap = wasTrap,
-                halt = false,
-                intr = wasTrap && wasIntr,
+            if (IncludeRVFI)
+                RVFI.WriteValue(new RVFIPacket
+                {
+                    valid = true,
+                    order = RVFI_Order++,
+                    insn = instr,
+                    trap = wasTrap,
+                    halt = false,
+                    intr = wasTrap && wasIntr,
 
-                rs1_addr = (int)rs1,
-                rs2_addr = (int)rs2,
-                rs1_rdata = vrs1,
-                rs2_rdata = vrs2,
+                    rs1_addr = (int)rs1,
+                    rs2_addr = (int)rs2,
+                    rs1_rdata = vrs1,
+                    rs2_rdata = vrs2,
 
-                rd_addr = (int)rd,
-                rd_rdata = result,
+                    rd_addr = (int)rd,
+                    rd_rdata = result,
 
-                pc_rdata = curr_pc,
-                pc_wdata = pc,
+                    pc_rdata = curr_pc,
+                    pc_wdata = npc,
 
-                mem_addr = mem_addr,
-                mem_rdata = mem_rdata,
-                mem_rmask = mem_rmask,
-                mem_wdata = mem_wdata,
-                mem_wmask = mem_wmask
-            });
+                    mem_addr = mem_addr,
+                    mem_rdata = mem_rdata,
+                    mem_rmask = mem_rmask,
+                    mem_wdata = mem_wdata,
+                    mem_wmask = mem_wmask
+                });
         }
 
         private ulong CalcVector(ulong mtvec, bool isInterrupt, ErrorType errorCause)
