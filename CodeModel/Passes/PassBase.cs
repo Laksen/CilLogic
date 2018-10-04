@@ -82,7 +82,7 @@ namespace CilLogic.CodeModel.Passes
             }
         }
 
-        public static void Process(Method m, bool ssa = true)
+        public static void Process(Method m, bool ssa = false)
         {
             DoPass<PassDeadCode>(m);
             CodePass.DoPass<BreakSwitch>(m);

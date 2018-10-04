@@ -179,7 +179,8 @@ namespace CilLogic.Tests
             return ((f3 & 0x1) != 0) ^ res;
         }
 
-        private const UInt32 R_SP = 14;
+        private const UInt32 R_RA = 1;
+        private const UInt32 R_SP = 2;
 
         private static bool IsAligned(UInt64 value, int bitWidth)
         {
@@ -321,16 +322,60 @@ namespace CilLogic.Tests
             }
             else if (quadrant == 0x2)
             {
+                UInt32 rd1_full = (instr >> 7) & 0x1F;
+                UInt32 r_d_s2 = (instr >> 2) & 0x7;
+
+                UInt32 nzuimm540 =
+                    (((instr >> 12) & 0x1) << 5) |
+                    ((instr >> 2) & 0x1F);
+
+                var uimm5386 =
+                    (((instr >> 10) & 0x7) << 3) |
+                    (((instr >> 7) & 0x7) << 6);
+                var uimm5276 =
+                    (((instr >> 9) & 0xF) << 2) |
+                    (((instr >> 7) & 0x3) << 6);
+                var uimm54386 =
+                    (((instr >> 12) & 0x1) << 5) |
+                    (((instr >> 5) & 0x3) << 3) |
+                    (((instr >> 2) & 0x7) << 6);
+                var uimm54276 =
+                    (((instr >> 12) & 0x1) << 5) |
+                    (((instr >> 4) & 0x7) << 2) |
+                    (((instr >> 2) & 0x3) << 6);
+
                 switch (opSelect)
                 {
-                    case 0: break; // SLLI
-                    case 1: break; // FLDSP
-                    case 2: break; // LWSP
-                    case 3: break; // LDSP
-                    case 4: break; // J[AL]R/MV/ADD
-                    case 5: break; // FSDSP
-                    case 6: break; // SWSP
-                    case 7: break; // SDSP
+                    case 0: return OpI(Opcode.addi, rd1_full, rd1_full, nzuimm540, (uint)F3_Alu.Sll); // SLLI
+                    case 1: return OpI(Opcode.fld, rd1_full, R_SP, uimm54386, (UInt32)F3_Load.LD); // FLDSP
+                    case 2: if (rd1_full != 0) return OpI(Opcode.ld, rd1_full, R_SP, uimm54276, (UInt32)F3_Load.LW); break; // LWSP
+                    case 3: if (rd1_full != 0) return OpI(Opcode.ld, rd1_full, R_SP, uimm54386, (UInt32)F3_Load.LD); break; // LDSP
+                    case 4: // J[AL]R/MV/ADD
+                        switch ((instr >> 12) & 1)
+                        {
+                            case 0:
+                                if (r_d_s2 == 0)
+                                {
+                                    if (rd1_full != 0) return OpI(Opcode.jalr, 0, rd1_full, 0, 0);
+                                }
+                                else
+                                    return OpI(Opcode.addi, rd1_full, r_d_s2, 0, (uint)F3_Alu.Sll);
+                                break;
+                            default:
+                                if (r_d_s2 == 0)
+                                {
+                                    if (rd1_full == 0)
+                                        return OpI(Opcode.sys, 0, 0, 1, 0); // EBREAK
+                                    else
+                                        return OpI(Opcode.jalr, R_RA, rd1_full, 0, 0);
+                                }
+                                else
+                                    return OpR(Opcode.add, rd1_full, rd1_full, r_d_s2, (uint)F3_Alu.Add, 0);
+                        }
+                        break;
+                    case 5: return OpS(Opcode.fsd, R_SP, r_d_s2, uimm5386, (UInt32)F3_Load.LD); // FLDSP
+                    case 6: return OpS(Opcode.sd, R_SP, r_d_s2, uimm5276, (UInt32)F3_Load.LW); // SWSP
+                    case 7: return OpS(Opcode.sd, R_SP, r_d_s2, uimm5386, (UInt32)F3_Load.LD); // SDSP
                 }
             }
 
@@ -531,8 +576,10 @@ namespace CilLogic.Tests
                     if (!IncludeRVFI) { pc = npc; return; }
                     break;
 
-                case Opcode.jal:
                 case Opcode.jalr:
+                    if (f3 != 0) goto default;
+                    goto case Opcode.jal;
+                case Opcode.jal:
                     {
                         result = npc;
                         if (rd != 0) regs[rd] = result;
@@ -762,7 +809,6 @@ namespace CilLogic.Tests
 
                         wasTrap = true;
 
-                        // Failed :(
                         rd = 0;
                         break;
                     }

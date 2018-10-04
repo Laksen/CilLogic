@@ -178,7 +178,7 @@ namespace CilLogic
             var execute = type.Methods.Where(m => m.Name == "Execute").FirstOrDefault();
             var inp = new Interpreter(execute);
 
-            CodePass.Process(inp.Method);
+            CodePass.Process(inp.Method, true);
 
             CodePass.Process(inp.Method);
             if (inp.Method.FindConnectedComponents().Any(x => x.Count > 1)) throw new Exception("CDFG has loops. Not yet supported");
@@ -201,7 +201,8 @@ namespace CilLogic
             
             CodePass.Process(inp.Method);*/
 
-            new Schedule { Settings = new ScheduleSettings { ArrayDelay = 1, RegDelay = 1, RequestDelay = 1 } }.Pass(inp.Method);
+            //new Schedule { Settings = new ScheduleSettings { ArrayDelay = 0, RegDelay = 0, RequestDelay = 0 } }.Pass(inp.Method);
+            //new Schedule { Settings = new ScheduleSettings { ArrayDelay = 1, RegDelay = 1, RequestDelay = 1 } }.Pass(inp.Method);
             //new VerilogPass { Settings = new VerilogSettings { Filename = @"output/out.v" } }.Pass(inp.Method);
 
             File.WriteAllText(@"output/cfg.txt", CFG(inp.Method).ToString());

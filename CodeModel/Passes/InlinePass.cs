@@ -62,7 +62,7 @@ namespace CilLogic.CodeModel.Passes
 
                 var m = new Interpreter(func.Method, args.Select(x => new ArgumentOperand(x.Key, x.Value.OperandType)).Cast<Operand>().ToList(), genPara).Method;
 
-                CodePass.Process(m);
+                CodePass.Process(m, true);
 
                 Operand ReplaceArg(Operand inp)
                 {
